@@ -99,6 +99,14 @@ class GenerateBody(BaseModel):
     seed: int | None = None
 
 
+@app.get("/v1/jobs/{job_id}/preview.png")
+def job_preview(job_id: str):
+    path = CACHE / "jobs" / job_id / "preview.png"
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="preview not found")
+    return FileResponse(path, media_type="image/png")
+
+
 @app.get("/health")
 def health():
     device = pick_device()
@@ -150,15 +158,20 @@ def generate(
         STATE["last_error"] = None
 
         media = "model/stl" if result.kind == "stl" else "model/gltf-binary"
+        preview = out_dir / "preview.png"
+        headers = {
+            "X-Job-Id": job_id,
+            "X-Textured": "1" if result.textured else "0",
+            "X-Backend": str(result.meta.get("backend", "")),
+        }
+        if preview.is_file():
+            headers["X-Preview-Path"] = str(preview)
+
         return FileResponse(
             path=result.path,
             media_type=media,
             filename=result.path.name,
-            headers={
-                "X-Job-Id": job_id,
-                "X-Textured": "1" if result.textured else "0",
-                "X-Backend": str(result.meta.get("backend", "")),
-            },
+            headers=headers,
         )
     except HTTPException:
         raise

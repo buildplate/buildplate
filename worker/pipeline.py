@@ -27,6 +27,7 @@ if _VENDOR_TSR.is_dir() and str(_VENDOR_TSR) not in sys.path:
 from PIL import Image
 
 from device import DeviceInfo, pick_device
+from mesh_ops import postprocess_mesh
 
 logger = logging.getLogger("buildplate-worker")
 
@@ -185,10 +186,13 @@ class TripoSRBackend(Backend):
 
     def _text_to_image(self, prompt: str) -> Image.Image:
         assert self._t2i is not None
-        enriched = prompt.strip()
-        if "white background" not in enriched.lower():
-            enriched = f"{enriched}, product photo, centered, white background"
-        # SD-Turbo: 1–4 steps
+        subject = prompt.strip().rstrip(".")
+        # SD-Turbo loves inventing floors/second subjects — be forceful.
+        enriched = (
+            f"single {subject}, one character only, 3D vinyl toy figurine, "
+            f"full body centered, plain pure white background, "
+            f"no floor, no ground, no shadow, no base, no scenery, no second figure"
+        )
         result = self._t2i(
             prompt=enriched,
             num_inference_steps=4,
@@ -200,8 +204,41 @@ class TripoSRBackend(Backend):
         if self._rembg_session is None:
             return image.convert("RGBA")
         from rembg import remove
+        import numpy as np
+        from scipy import ndimage
 
-        return remove(image.convert("RGBA"), session=self._rembg_session)
+        cut = remove(image.convert("RGBA"), session=self._rembg_session)
+        arr = np.array(cut)
+        alpha = arr[:, :, 3]
+        alpha = (alpha >= 40).astype(np.uint8) * 255
+        # Keep only the largest connected opaque blob (drop floor scraps / 2nd subject)
+        labeled, n = ndimage.label(alpha > 0)
+        if n > 1:
+            sizes = ndimage.sum(alpha > 0, labeled, index=range(1, n + 1))
+            keep = int(np.argmax(sizes)) + 1
+            alpha = np.where(labeled == keep, alpha, 0).astype(np.uint8)
+            logger.info("rembg blobs=%d kept=%d", n, int(np.max(sizes)))
+        # Slight erode to shave fuzzy halo that becomes a sheet
+        mask = alpha > 0
+        mask = ndimage.binary_erosion(mask, iterations=1)
+        arr[:, :, 3] = np.where(mask, 255, 0).astype(np.uint8)
+        arr[arr[:, :, 3] == 0, :3] = 255
+
+        ys, xs = np.where(arr[:, :, 3] > 0)
+        if len(xs) == 0:
+            return Image.fromarray(arr, mode="RGBA")
+        pad = 24
+        x0, x1 = max(0, xs.min() - pad), min(arr.shape[1], xs.max() + pad + 1)
+        y0, y1 = max(0, ys.min() - pad), min(arr.shape[0], ys.max() + pad + 1)
+        cropped = arr[y0:y1, x0:x1]
+        side = int(max(cropped.shape[0], cropped.shape[1]) * 1.4)
+        side = max(side, 256)
+        canvas = np.zeros((side, side, 4), dtype=np.uint8)
+        canvas[:, :, :3] = 255
+        oy = (side - cropped.shape[0]) // 2
+        ox = (side - cropped.shape[1]) // 2
+        canvas[oy : oy + cropped.shape[0], ox : ox + cropped.shape[1]] = cropped
+        return Image.fromarray(canvas, mode="RGBA")
 
     def generate(
         self,
@@ -231,30 +268,43 @@ class TripoSRBackend(Backend):
         cutout = self._remove_bg(image)
         cutout.save(out_dir / "cutout.png")
 
-        # TripoSR expects RGB with white/alpha handling — composite on white
         bg = Image.new("RGBA", cutout.size, (255, 255, 255, 255))
         composited = Image.alpha_composite(bg, cutout).convert("RGB")
+        composited.save(out_dir / "composited.png")
 
         import numpy as np
         import torch
 
         with torch.no_grad():
             scene_codes = self._tsr([np.array(composited)], device=self.device.torch_device)
+            # Slightly higher threshold → less floaty sheet geometry
             meshes = self._tsr.extract_mesh(
                 scene_codes,
-                True,  # has_vertex_color
+                True,
                 resolution=256,
+                threshold=40.0,
             )
+            # Neural preview frames for chat / debugging
+            try:
+                renders = self._tsr.render(
+                    scene_codes,
+                    n_views=4,
+                    elevation_deg=15.0,
+                    return_type="pil",
+                )
+                for i, img in enumerate(renders[0]):
+                    img.save(out_dir / f"render_{i:02d}.png")
+                renders[0][0].save(out_dir / "preview.png")
+            except Exception as err:
+                logger.warning("preview render failed: %s", err)
 
-        mesh = meshes[0]
+        mesh = postprocess_mesh(meshes[0])
         kind = "stl" if fmt == "stl" else "glb"
         path = out_dir / f"model.{kind}"
 
-        # TSR returns a trimesh-like object
         if kind == "stl":
             mesh.export(str(path))
         else:
-            # Prefer GLB; fall back to GLTF if needed
             try:
                 mesh.export(str(path), file_type="glb")
             except Exception:
@@ -262,6 +312,12 @@ class TripoSRBackend(Backend):
                 mesh.export(str(alt))
                 path = alt
                 kind = "obj"
+
+        # Also bake a simple shaded still from the cleaned mesh (orientation-correct)
+        try:
+            _save_mesh_still(mesh, out_dir / "preview.png")
+        except Exception as err:
+            logger.warning("mesh still failed: %s", err)
 
         elapsed = time.time() - t0
         return GenerateResult(
@@ -274,8 +330,60 @@ class TripoSRBackend(Backend):
                 "prompt": prompt,
                 "seconds": round(elapsed, 2),
                 "texture_requested": texture,
+                "preview": str(out_dir / "preview.png"),
             },
         )
+
+
+def _save_mesh_still(mesh, path: Path, size: int = 512) -> None:
+    """Orientation-correct PNG using matplotlib (no pyglet needed)."""
+    import numpy as np
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+
+    m = mesh.copy()
+    if len(m.faces) > 20_000:
+        try:
+            m = m.simplify_quadric_decimation(20_000)
+        except Exception:
+            # Random subsample faces if simplify unavailable
+            idx = np.random.choice(len(m.faces), 20_000, replace=False)
+            m = m.submesh([idx], append=True)
+
+    verts = m.vertices
+    # Y-up mesh → Z-up for matplotlib
+    plot_tris = np.stack(
+        [verts[m.faces][:, :, 0], verts[m.faces][:, :, 2], verts[m.faces][:, :, 1]],
+        axis=-1,
+    )
+
+    fig = plt.figure(figsize=(size / 100, size / 100), dpi=100)
+    ax = fig.add_subplot(111, projection="3d")
+    coll = Poly3DCollection(plot_tris, linewidths=0.02, alpha=1.0)
+    coll.set_facecolor((0.78, 0.82, 0.88, 1.0))
+    coll.set_edgecolor((0.3, 0.35, 0.4, 0.12))
+    ax.add_collection3d(coll)
+
+    c = verts.mean(axis=0)
+    span = float((verts.max(axis=0) - verts.min(axis=0)).max() / 2 * 1.15)
+    ax.set_xlim(c[0] - span, c[0] + span)
+    ax.set_ylim(c[2] - span, c[2] + span)
+    ax.set_zlim(c[1] - span, c[1] + span)
+    ax.view_init(elev=20, azim=-60)
+    ax.set_axis_off()
+    fig.patch.set_facecolor("#12171c")
+    plt.tight_layout(pad=0)
+    fig.savefig(
+        path,
+        dpi=100,
+        facecolor=fig.get_facecolor(),
+        bbox_inches="tight",
+        pad_inches=0.05,
+    )
+    plt.close(fig)
 
 
 def create_backend(prefer: str | None = None) -> Backend:

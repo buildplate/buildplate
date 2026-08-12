@@ -117,7 +117,21 @@ export async function generateMeshFromWorker({
     textured,
     taskId: res.headers.get("x-job-id") || "local",
     prompt: enriched,
+    previewPath: res.headers.get("x-preview-path") || null,
   };
+}
+
+export async function fetchJobPreview(jobId) {
+  const base = WORKER_URL.replace(/\/$/, "");
+  try {
+    const res = await fetch(`${base}/v1/jobs/${encodeURIComponent(jobId)}/preview.png`);
+    if (!res.ok) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.byteLength < 32) return null;
+    return buf;
+  } catch {
+    return null;
+  }
 }
 
 function finalizeWorkerPrompt(prompt) {

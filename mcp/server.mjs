@@ -19,6 +19,7 @@ import {
   probeWorkerHealth,
   workerConfigured,
   ensureWorker,
+  fetchJobPreview,
 } from "./worker-client.mjs";
 
 const OUT_DIR = process.env.BUILDPLATE_OUT_DIR?.trim()
@@ -173,6 +174,15 @@ server.registerTool(
       };
       await writeFile(path.join(dir, "meta.json"), JSON.stringify(meta, null, 2));
 
+      // Pull PNG still for in-chat preview (Cursor shows MCP image content)
+      let previewPng = null;
+      const remotePreview = await fetchJobPreview(jobId);
+      if (remotePreview) {
+        const previewFile = path.join(dir, "preview.png");
+        await writeFile(previewFile, remotePreview);
+        previewPng = remotePreview;
+      }
+
       let previewUrl = null;
       if (open_preview !== false) {
         previewUrl = previewPageUrl(meshPath);
@@ -191,7 +201,16 @@ server.registerTool(
         `Call export_stl with job_id "${jobId}" for a printable STL.`,
       ].filter(Boolean);
 
-      return { content: [{ type: "text", text: lines.join("\n") }] };
+      const content = [{ type: "text", text: lines.join("\n") }];
+      if (previewPng) {
+        content.push({
+          type: "image",
+          data: previewPng.toString("base64"),
+          mimeType: "image/png",
+        });
+      }
+
+      return { content };
     } catch (err) {
       return {
         content: [
