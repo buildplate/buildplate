@@ -1,58 +1,20 @@
 /**
- * Thin client for the local Buildplate GPU worker (Hunyuan FastAPI).
- * Same contract as Shapeful: GET /health, POST /v1/generate → binary mesh.
+ * Thin client for the local Buildplate worker.
+ * Always targets localhost unless BUILDPLATE_WORKER_URL is overridden.
  */
 
+import { WORKER_URL, probeHealth, ensureWorker, workerConfigured } from "./ensure-worker.mjs";
+
+export { probeHealth as probeWorkerHealth, workerConfigured, ensureWorker, WORKER_URL };
+
 function logWorker(level, msg, extra) {
-  // MCP stdio: never write to stdout. stderr is fine for diagnostics.
   const line = `[buildplate-worker] ${msg}`;
   if (level === "error") console.error(line, extra ?? "");
   else console.error(line, extra ?? "");
 }
 
-export function workerConfigured() {
-  return Boolean(
-    process.env.BUILDPLATE_WORKER_URL?.trim() &&
-      process.env.BUILDPLATE_WORKER_SECRET?.trim(),
-  );
-}
-
 export function missingWorkerError() {
-  return (
-    "Mesh generation needs BUILDPLATE_WORKER_URL and BUILDPLATE_WORKER_SECRET " +
-    "(local GPU worker). See worker/README.md."
-  );
-}
-
-export async function probeWorkerHealth() {
-  const base = process.env.BUILDPLATE_WORKER_URL?.trim()?.replace(/\/$/, "");
-  if (!base) {
-    return { online: false, ready: false, detail: "BUILDPLATE_WORKER_URL unset" };
-  }
-  const timeoutMs = Number(process.env.BUILDPLATE_WORKER_HEALTH_TIMEOUT_MS || 4000);
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), timeoutMs);
-  try {
-    const res = await fetch(`${base}/health`, { signal: ctrl.signal });
-    if (!res.ok) {
-      return { online: false, ready: false, detail: `HTTP ${res.status}` };
-    }
-    const data = await res.json().catch(() => ({}));
-    return {
-      online: true,
-      ready: Boolean(data.ready),
-      busy: Boolean(data.busy),
-      model: data.model ?? null,
-      device: data.device ?? null,
-      texgen: Boolean(data.texgen),
-      detail: data.last_error ?? null,
-    };
-  } catch (err) {
-    const detail = err?.name === "AbortError" ? "timeout" : err?.message || "unreachable";
-    return { online: false, ready: false, detail };
-  } finally {
-    clearTimeout(t);
-  }
+  return "Local worker is not running. Run: npm run setup && npm run worker";
 }
 
 /**
@@ -64,15 +26,33 @@ export async function generateMeshFromWorker({
   format = "glb",
   texture = true,
 }) {
-  const base = process.env.BUILDPLATE_WORKER_URL?.trim()?.replace(/\/$/, "");
-  const secret = process.env.BUILDPLATE_WORKER_SECRET?.trim();
-  if (!base || !secret) throw new Error(missingWorkerError());
+  const health = await ensureWorker();
+  if (!health.online) {
+    throw new Error(health.detail || missingWorkerError());
+  }
 
+  // Wait until models are ready (lazy load)
+  if (!health.ready) {
+    const deadline = Date.now() + Number(process.env.BUILDPLATE_READY_TIMEOUT_MS || 600_000);
+    while (Date.now() < deadline) {
+      const h = await probeHealth(5000);
+      if (h.ready) break;
+      if (h.detail && !h.online) throw new Error(h.detail);
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    const final = await probeHealth(5000);
+    if (!final.ready) {
+      throw new Error(final.detail || "Worker models still loading — try again shortly");
+    }
+  }
+
+  const base = WORKER_URL.replace(/\/$/, "");
+  const secret = process.env.BUILDPLATE_WORKER_SECRET?.trim();
   const enriched = finalizeWorkerPrompt(prompt);
   const imagePayload =
     typeof image === "string" && image.trim() ? image.trim() : null;
 
-  const timeoutMs = Number(process.env.BUILDPLATE_WORKER_TIMEOUT_MS || 600_000);
+  const timeoutMs = Number(process.env.BUILDPLATE_WORKER_TIMEOUT_MS || 900_000);
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
 
@@ -80,27 +60,25 @@ export async function generateMeshFromWorker({
     prompt: enriched,
     type: format,
     texture: Boolean(texture),
-    octree_resolution: Number(process.env.BUILDPLATE_WORKER_OCTREE || 128),
-    num_inference_steps: Number(process.env.BUILDPLATE_WORKER_STEPS || 5),
   };
   if (imagePayload) body.image = imagePayload;
+
+  const headers = { "Content-Type": "application/json" };
+  if (secret) headers["X-Worker-Secret"] = secret;
 
   let res;
   try {
     res = await fetch(`${base}/v1/generate`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Worker-Secret": secret,
-      },
+      headers,
       body: JSON.stringify(body),
       signal: ctrl.signal,
     });
   } catch (err) {
     if (err?.name === "AbortError") {
-      throw new Error("GPU worker timed out — is the worker running?");
+      throw new Error("GPU worker timed out");
     }
-    throw new Error(`GPU worker unreachable: ${err?.message || err}`);
+    throw new Error(`Worker unreachable: ${err?.message || err}`);
   } finally {
     clearTimeout(t);
   }
@@ -118,9 +96,9 @@ export async function generateMeshFromWorker({
       }
     }
     logWorker("error", `generate failed: ${detail}`, { status: res.status });
-    if (res.status === 429) throw new Error("GPU worker busy — one job at a time");
-    if (res.status === 503) throw new Error("GPU worker not ready (models still loading)");
-    throw new Error(`GPU worker failed: ${detail}`);
+    if (res.status === 429) throw new Error("Worker busy — one job at a time");
+    if (res.status === 503) throw new Error("Worker not ready (models still loading)");
+    throw new Error(`Worker failed: ${detail}`);
   }
 
   const contentType = (res.headers.get("content-type") || "").toLowerCase();
@@ -130,7 +108,7 @@ export async function generateMeshFromWorker({
 
   const buffer = await res.arrayBuffer();
   if (!buffer || buffer.byteLength < 84) {
-    throw new Error("GPU worker returned an empty/invalid mesh");
+    throw new Error("Worker returned an empty/invalid mesh");
   }
 
   return {
@@ -145,11 +123,7 @@ export async function generateMeshFromWorker({
 function finalizeWorkerPrompt(prompt) {
   const base = String(prompt || "").trim();
   if (!base) {
-    return "3D object, white background, centered, multi-color textured 3D asset";
+    return "3D object, white background, centered, product photo";
   }
-  const lower = base.toLowerCase();
-  if (lower.includes("white background") || lower.includes("textured")) {
-    return base;
-  }
-  return `${base}, white background, centered, multi-color textured 3D asset`;
+  return base;
 }

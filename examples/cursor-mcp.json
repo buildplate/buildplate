@@ -2,10 +2,9 @@
   "mcpServers": {
     "buildplate": {
       "command": "node",
-      "args": ["${workspaceFolder}/mcp/server.mjs"],
+      "args": ["${workspaceFolder}/buildplate/mcp/server.mjs"],
       "env": {
-        "BUILDPLATE_WORKER_URL": "http://127.0.0.1:8081",
-        "BUILDPLATE_WORKER_SECRET": "replace-me"
+        "BUILDPLATE_PREVIEW_URL": "http://127.0.0.1:3920"
       }
     }
   }

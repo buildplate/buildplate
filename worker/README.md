@@ -1,72 +1,67 @@
-# Buildplate GPU worker
+# Buildplate worker
 
-Local mesh brain (Hunyuan3D). Lives in-repo; multi‑GB runtime + weights stay on disk outside git.
+Local mesh brain. Runs **on the same machine** as the MCP — Apple Silicon (Metal), NVIDIA CUDA, or CPU.
 
-Default exposure is **localhost only** — the MCP on the same machine calls `http://127.0.0.1:8081`. No Tailscale Funnel required.
+## Pipeline
 
-## Layout
+1. **Text→image** — `stabilityai/sd-turbo` (diffusers)
+2. **Background remove** — `rembg`
+3. **Image→mesh** — `stabilityai/TripoSR`
+4. Export **GLB** or **STL**
 
-| In git (`worker/`) | On disk (default) |
-|--------------------|-------------------|
-| `buildplate_worker.py` | `C:\buildplate-worker\Hunyuan3D2_WinPortable\...` |
-| `start-worker.bat` | HF weights under that tree’s `HuggingFaceHub\` |
-| `download-models.bat` | |
-| `.worker_secret` (local, gitignored) | |
+## Setup
 
-Override runtime path with `BUILDPLATE_HY3D_ROOT`.
-
-## Windows (CUDA) — first-class
-
-1. Install Hunyuan3D2 WinPortable under `C:\buildplate-worker\` (or set `BUILDPLATE_HY3D_ROOT`).
-2. Run `download-models.bat`.
-3. Copy `.worker_secret.example` → `.worker_secret` and set a secret.
-4. Run `start-worker.bat`.
-5. Point MCP env at this box:
-
-```text
-BUILDPLATE_WORKER_URL=http://127.0.0.1:8081
-BUILDPLATE_WORKER_SECRET=<same as .worker_secret>
-```
-
-## Linux (CUDA)
-
-Same FastAPI entrypoint. Install Hunyuan + CUDA torch yourself, set `BUILDPLATE_HY3D_ROOT` to the tree that contains `Hunyuan3D-2`, then:
+From repo root (preferred):
 
 ```bash
-export BUILDPLATE_CACHE="$PWD/cache"
-export WORKER_SECRET="$(cat .worker_secret)"
-python buildplate_worker.py --host 127.0.0.1 --port 8081 --enable_t23d --enable_texgen
+npm run setup
+npm run worker          # http://127.0.0.1:8081
 ```
 
-## macOS
+Or:
 
-MCP + preview work without a worker. **Inference on Metal/MPS is not shipped yet.** Use a Windows/Linux CUDA box on the LAN (`BUILDPLATE_WORKER_URL=http://<lan-ip>:8081`) or wait for an Apple backend.
+```bash
+worker/.venv/bin/python worker/server.py --lazy --verbose
+```
+
+`--lazy` serves `/health` immediately and loads models in the background (or on first `generate`).
 
 ## API
 
 ```http
 GET  /health
 POST /v1/generate
-     Header: X-Worker-Secret: <secret>
-     Body: { "prompt": "a small robot figurine", "type": "glb" }
-     → binary GLB or STL
+     Body: { "prompt": "a small red mug", "type": "glb" }
+     → binary mesh
 ```
 
-Also `{ "image": "<base64>" }` for image→3D. One job at a time.
+Optional `image` (base64). Auth secret is **optional** on localhost.
+
+## Device selection
+
+| Priority | Backend |
+|----------|---------|
+| 1 | Apple **MPS** (M1–M5) |
+| 2 | NVIDIA **CUDA** |
+| 3 | **CPU** (slow) |
+
+## Env
+
+| var | default | meaning |
+|-----|---------|---------|
+| `BUILDPLATE_WORKER_HOST` | `127.0.0.1` | bind address |
+| `BUILDPLATE_WORKER_PORT` | `8081` | port |
+| `BUILDPLATE_CACHE` | `worker/cache` | logs + job scratch |
+| `BUILDPLATE_BACKEND` | `triposr` | or `stub` |
+| `BUILDPLATE_ALLOW_STUB` | `0` | fall back to stub mesh if model load fails |
+| `BUILDPLATE_WORKER_SECRET` | unset | optional `X-Worker-Secret` |
 
 ## Smoke test
 
-```powershell
-curl http://127.0.0.1:8081/health
-$secret = Get-Content .\worker\.worker_secret -Raw
-curl.exe -X POST http://127.0.0.1:8081/v1/generate `
-  -H "Content-Type: application/json" `
-  -H "X-Worker-Secret: $secret" `
-  -d "{\"prompt\":\"cute fox figurine\",\"type\":\"stl\"}" `
-  --output test.stl
+```bash
+curl -s http://127.0.0.1:8081/health | jq
+curl -X POST http://127.0.0.1:8081/v1/generate \
+  -H 'Content-Type: application/json' \
+  -d '{"prompt":"cute fox figurine","type":"stl"}' \
+  --output /tmp/fox.stl
 ```
-
-## Notes
-
-- Hunyuan weights: Tencent community / non-commercial — OK for personal use; revisit before commercial redistribution.
-- Admin update/restart endpoints remain for remote ops; Funnel is optional, not the product default.

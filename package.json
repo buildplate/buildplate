@@ -1,18 +1,21 @@
 {
   "name": "buildplate",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Local-first text-to-3D MCP for agents — BYO GPU, preview + STL export",
+  "description": "Local-first text-to-3D MCP for agents — runs on your Mac or PC",
   "bin": {
     "buildplate": "./mcp/server.mjs"
   },
   "scripts": {
+    "setup": "node scripts/setup-worker.mjs",
+    "postinstall": "npm install --prefix preview --ignore-scripts",
+    "worker": "node scripts/start-worker.mjs",
     "mcp": "node mcp/server.mjs",
     "preview": "npm run dev --prefix preview",
     "preview:build": "npm run build --prefix preview",
-    "dev": "concurrently -n mcp,preview -c green,cyan \"npm:mcp\" \"npm:preview\"",
-    "postinstall": "npm install --prefix preview --ignore-scripts"
+    "start": "concurrently -n worker,preview -c magenta,cyan \"npm:worker\" \"npm:preview\"",
+    "dev": "npm start"
   },
   "engines": {
     "node": ">=20"

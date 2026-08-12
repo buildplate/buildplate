@@ -18,6 +18,7 @@ import {
   generateMeshFromWorker,
   probeWorkerHealth,
   workerConfigured,
+  ensureWorker,
 } from "./worker-client.mjs";
 
 const OUT_DIR = process.env.BUILDPLATE_OUT_DIR?.trim()
@@ -84,16 +85,13 @@ server.registerTool(
     description: "Check Buildplate + local GPU worker status (ready / busy / device).",
   },
   async () => {
-    const configured = workerConfigured();
-    const worker = configured
-      ? await probeWorkerHealth()
-      : { online: false, ready: false, detail: "BUILDPLATE_WORKER_URL / SECRET unset" };
+    const worker = await ensureWorker();
 
     const payload = {
       mcp: "ok",
       outDir: OUT_DIR,
       previewUrl: PREVIEW_URL,
-      workerConfigured: configured,
+      workerConfigured: workerConfigured(),
       worker,
     };
 
@@ -129,20 +127,7 @@ server.registerTool(
     },
   },
   async ({ prompt, image_path, format, texture, open_preview }) => {
-    if (!workerConfigured()) {
-      return {
-        content: [
-          {
-            type: "text",
-            text:
-              "Worker not configured. Set BUILDPLATE_WORKER_URL and BUILDPLATE_WORKER_SECRET, " +
-              "start worker/ (see worker/README.md), then retry.",
-          },
-        ],
-        isError: true,
-      };
-    }
-
+    // Local worker is auto-started; no remote URL / Funnel config.
     let imageB64 = null;
     if (image_path) {
       const abs = path.resolve(image_path);

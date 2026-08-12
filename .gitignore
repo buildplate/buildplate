@@ -8,14 +8,16 @@ preview/dist/
 .env.local
 
 # Worker runtime
+worker/.venv/
+worker/.setup-ok
 worker/cache/
-worker/.worker_secret
+worker/vendor/
 worker/__pycache__/
 worker/*.pyc
-worker/.venv/
 worker/.tunnel-url
 worker/*.stl
 worker/*.glb
+
 
 # Local outputs
 out/

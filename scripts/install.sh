@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Buildplate install — Node MCP + preview. GPU worker is a separate step.
+# Buildplate install — Node + Python worker setup.
 set -euo pipefail
 
 REPO_URL="${BUILDPLATE_REPO_URL:-https://github.com/jordan-homan/buildplate.git}"
@@ -31,9 +31,12 @@ fi
 echo "→ npm install"
 (cd "$INSTALL_DIR" && npm install)
 
+echo "→ npm run setup (Python worker)"
+(cd "$INSTALL_DIR" && npm run setup)
+
 MCP_ENTRY="$INSTALL_DIR/mcp/server.mjs"
 echo
-echo "Installed. Add this to ~/.cursor/mcp.json:"
+echo "Installed. Add this to ~/.cursor/mcp.json (or project .cursor/mcp.json):"
 echo
 cat <<EOF
 {
@@ -42,14 +45,13 @@ cat <<EOF
       "command": "node",
       "args": ["$MCP_ENTRY"],
       "env": {
-        "BUILDPLATE_WORKER_URL": "http://127.0.0.1:8081",
-        "BUILDPLATE_WORKER_SECRET": "replace-me"
+        "BUILDPLATE_PREVIEW_URL": "http://127.0.0.1:3920"
       }
     }
   }
 }
 EOF
 echo
-echo "GPU worker (Windows CUDA): see $INSTALL_DIR/worker/README.md"
-echo "Preview UI: cd $INSTALL_DIR && npm run preview  →  http://127.0.0.1:3920"
+echo "Run preview + worker:  cd $INSTALL_DIR && npm start"
+echo "MCP alone:             cd $INSTALL_DIR && npm run mcp"
 echo "Done."
