@@ -24,3 +24,4 @@ out/
 *.stl
 *.glb
 !preview/public/.gitkeep
+preview-*.png
