@@ -18,6 +18,9 @@ def postprocess_mesh(mesh: Any) -> Any:
     mesh = _strip_relief_backing(mesh)
     mesh = _remove_large_planar_facets(mesh)
     mesh = _pca_upright(mesh)
+    mesh = _orient_feet_down(mesh)  # head/ears wide tip → top; feet compact → bottom
+    mesh = _trim_horizontal_brims(mesh)
+    mesh = _keep_best_component(mesh)
     mesh = _sit_on_ground(mesh)
     return mesh
 
@@ -47,10 +50,7 @@ def _keep_best_component(mesh: Any) -> Any:
 
 
 def _strip_relief_backing(mesh: Any) -> Any:
-    """
-    TripoSR often returns a character embossed on a flat card.
-    Drop faces sitting on the back plane; keep the protruding subject.
-    """
+    """Drop the flat card behind a TripoSR relief; keep the protruding subject."""
     try:
         verts = np.asarray(mesh.vertices, dtype=float)
         faces = np.asarray(mesh.faces, dtype=int)
@@ -60,24 +60,21 @@ def _strip_relief_backing(mesh: Any) -> Any:
         center = verts.mean(axis=0)
         centered = verts - center
         _, s, vh = np.linalg.svd(centered, full_matrices=False)
-        # If not flat-ish, skip
         thin_ratio = float(s[-1] / (s[0] + 1e-8))
-        if thin_ratio > 0.35:
+        if thin_ratio > 0.45:
             return mesh
 
         normal = vh[-1]
         depths = centered @ normal
         dmin, dmax = float(depths.min()), float(depths.max())
         span = dmax - dmin + 1e-8
-        # Back plane = the side with more vertices packed near the extreme
         lo_count = int(np.sum(depths < dmin + 0.2 * span))
         hi_count = int(np.sum(depths > dmax - 0.2 * span))
         if lo_count >= hi_count:
-            # back is low side; keep upper protrusion
-            cutoff = dmin + 0.22 * span
+            cutoff = dmin + 0.28 * span
             keep_vert = depths >= cutoff
         else:
-            cutoff = dmax - 0.22 * span
+            cutoff = dmax - 0.28 * span
             keep_vert = depths <= cutoff
 
         face_keep = keep_vert[faces].any(axis=1)
@@ -104,7 +101,7 @@ def _remove_large_planar_facets(mesh: Any) -> Any:
         total = float(np.sum(areas)) + 1e-8
         drop: list[int] = []
         for facet_idx, facet in enumerate(mesh.facets):
-            if float(areas[facet_idx]) / total < 0.10:
+            if float(areas[facet_idx]) / total < 0.08:
                 continue
             verts = mesh.vertices[np.unique(mesh.faces[facet].reshape(-1))]
             if len(verts) < 9:
@@ -115,7 +112,7 @@ def _remove_large_planar_facets(mesh: Any) -> Any:
                 thin = float(s[-1] / (s[0] + 1e-8))
             except Exception:
                 continue
-            if thin < 0.1:
+            if thin < 0.12:
                 drop.extend(int(i) for i in facet)
         if not drop:
             return mesh
@@ -130,11 +127,7 @@ def _remove_large_planar_facets(mesh: Any) -> Any:
 
 
 def _pca_upright(mesh: Any) -> Any:
-    """
-    Align principal axes:
-      most variance → Y (height)
-      least variance → Z (depth)
-    """
+    """Align most variance → Y, least → Z."""
     verts = np.asarray(mesh.vertices, dtype=float)
     center = verts.mean(axis=0)
     centered = verts - center
@@ -143,31 +136,105 @@ def _pca_upright(mesh: Any) -> Any:
     except Exception:
         return mesh
 
-    # vh[0] = direction of most variance, vh[2] = least
-    # Build rotation that maps vh[0]→Y, vh[2]→Z, vh[1]→X
     x_axis = vh[1]
     y_axis = vh[0]
     z_axis = vh[2]
-    # Ensure right-handed
     if np.dot(np.cross(x_axis, y_axis), z_axis) < 0:
         z_axis = -z_axis
     rot = np.eye(4)
-    # World basis from these axes: columns are where unit axes go...
-    # We want: new = R @ old, such that vh[0] becomes (0,1,0)
-    basis = np.stack([x_axis, y_axis, z_axis], axis=0)  # rows
-    rot[:3, :3] = basis
+    rot[:3, :3] = np.stack([x_axis, y_axis, z_axis], axis=0)
 
     out = mesh.copy()
     out.apply_transform(rot)
-    # Prefer heavy bottom
-    mid = 0.5 * (out.vertices[:, 1].min() + out.vertices[:, 1].max())
-    low = int(np.sum(out.vertices[:, 1] <= mid))
-    high = int(np.sum(out.vertices[:, 1] > mid))
-    if high > low * 1.1:
-        out.vertices[:, 1] *= -1
-        logger.info("pca upright: flipped Y")
     logger.info("pca upright applied")
     return out
+
+
+def _orient_feet_down(mesh: Any) -> Any:
+    """
+    Prefer the orientation whose *bottom contact patch* is smaller.
+    Feet make a compact footprint; an upside-down head/ear-brim does not.
+    """
+    def prepare(m: Any, flip: bool) -> Any:
+        out = m.copy()
+        if flip:
+            out.vertices[:, 1] *= -1
+        out.vertices[:, 1] -= out.vertices[:, 1].min()
+        return out
+
+    def bottom_contact(m: Any) -> float:
+        v = np.asarray(m.vertices, dtype=float)
+        ymin = float(v[:, 1].min())
+        span = float(np.ptp(v[:, 1])) + 1e-8
+        bot = v[v[:, 1] <= ymin + 0.1 * span]
+        if len(bot) < 12:
+            return 1e9
+        try:
+            from scipy.spatial import ConvexHull
+
+            return float(ConvexHull(bot[:, [0, 2]]).volume)  # 2D area
+        except Exception:
+            return float(np.ptp(bot[:, 0]) * np.ptp(bot[:, 2]))
+
+    a = prepare(mesh, flip=False)
+    b = prepare(mesh, flip=True)
+    ca, cb = bottom_contact(a), bottom_contact(b)
+    logger.info("orient contact upright=%.5f flipped=%.5f", ca, cb)
+    if cb < ca * 0.92:
+        logger.info("orient: using flipped (smaller foot contact)")
+        return b
+    logger.info("orient: keeping current")
+    return a
+
+
+def _trim_horizontal_brims(mesh: Any) -> Any:
+    """
+    Remove flat fins/halos around ears: nearly-horizontal faces on the outer
+    XZ ring, especially near the top (ears) or bottom.
+    """
+    try:
+        verts = np.asarray(mesh.vertices, dtype=float)
+        faces = np.asarray(mesh.faces, dtype=int)
+        if len(faces) < 100:
+            return mesh
+
+        v0 = verts[faces[:, 0]]
+        v1 = verts[faces[:, 1]]
+        v2 = verts[faces[:, 2]]
+        normals = np.cross(v1 - v0, v2 - v0)
+        nlen = np.linalg.norm(normals, axis=1, keepdims=True) + 1e-12
+        normals = normals / nlen
+        horiz = np.abs(normals[:, 1]) > 0.72
+
+        center_xz = verts[:, [0, 2]].mean(axis=0)
+        face_c = (v0 + v1 + v2) / 3.0
+        radii = np.linalg.norm(face_c[:, [0, 2]] - center_xz, axis=1)
+        r_cut = float(np.percentile(radii, 55))
+
+        ymin, ymax = float(verts[:, 1].min()), float(verts[:, 1].max())
+        span = ymax - ymin + 1e-8
+        # Ears / head zone (upper 40%) and accidental bottom skirts
+        near_end = (face_c[:, 1] > ymin + 0.55 * span) | (face_c[:, 1] < ymin + 0.22 * span)
+
+        suspect = horiz & (radii > r_cut) & near_end
+        n_drop = int(np.sum(suspect))
+        if n_drop < 15:
+            return mesh
+        # Don't delete more than a third of the mesh
+        if n_drop > 0.33 * len(faces):
+            # Stricter: outer 30% only
+            r_cut2 = float(np.percentile(radii, 70))
+            suspect = horiz & (radii > r_cut2) & near_end
+            n_drop = int(np.sum(suspect))
+            if n_drop < 15 or n_drop > 0.33 * len(faces):
+                return mesh
+
+        keep = np.where(~suspect)[0]
+        logger.info("trimmed brim faces=%d/%d", n_drop, len(faces))
+        return mesh.submesh([keep], append=True)
+    except Exception as err:
+        logger.debug("brim trim skipped: %s", err)
+        return mesh
 
 
 def _sit_on_ground(mesh: Any) -> Any:

@@ -218,9 +218,9 @@ class TripoSRBackend(Backend):
             keep = int(np.argmax(sizes)) + 1
             alpha = np.where(labeled == keep, alpha, 0).astype(np.uint8)
             logger.info("rembg blobs=%d kept=%d", n, int(np.max(sizes)))
-        # Slight erode to shave fuzzy halo that becomes a sheet
+        # Stronger erode to shave fuzzy halo that becomes ear/floor fins
         mask = alpha > 0
-        mask = ndimage.binary_erosion(mask, iterations=1)
+        mask = ndimage.binary_erosion(mask, iterations=2)
         arr[:, :, 3] = np.where(mask, 255, 0).astype(np.uint8)
         arr[arr[:, :, 3] == 0, :3] = 255
 
