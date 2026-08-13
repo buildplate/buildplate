@@ -20,6 +20,7 @@ logger = logging.getLogger("buildplate-worker")
 _ATLAS = 1024
 _AZIMUTHS = tuple(range(0, 360, 20))
 _ELEVATIONS = (6, 16)
+_MAX_COLORS = 6
 
 
 def bake_reference_pbr(mesh: Any, image: Image.Image, out_dir: Path | None = None) -> Any:
@@ -41,10 +42,11 @@ def bake_reference_pbr(mesh: Any, image: Image.Image, out_dir: Path | None = Non
 
     colors = _project_vertex_colors(verts, faces, rgb, mask, az, el)
     colors = _fill_vertex_colors(faces, colors)
+    colors = _quantize_colors(colors, _MAX_COLORS)
 
     new_verts, new_faces, uvs, vmapping = _unwrap(verts, faces)
     vert_colors = colors[vmapping]
-    atlas = _pad_atlas(_rasterize_atlas(uvs, new_faces, vert_colors, _ATLAS))
+    atlas = cartoonize_u8(_pad_atlas(_rasterize_atlas(uvs, new_faces, vert_colors, _ATLAS)), _MAX_COLORS)
 
     if out_dir is not None:
         Image.fromarray(atlas).save(out_dir / "albedo.png")
@@ -361,3 +363,69 @@ def _pad_atlas(atlas: np.ndarray) -> np.ndarray:
     if hole.any():
         u8 = cv2.inpaint(u8, hole, 3, cv2.INPAINT_TELEA)
     return u8
+
+
+def cartoonize_u8(u8: np.ndarray, k: int = _MAX_COLORS) -> np.ndarray:
+    """Snap an RGB atlas to at most k flat, slightly punched colors."""
+    if u8.ndim != 3 or u8.shape[2] != 3:
+        return u8
+    filled = np.any(u8 > 8, axis=2)
+    pts = u8[filled].astype(np.float64) / 255.0
+    if len(pts) < 8:
+        return u8
+    k = int(max(2, min(k, len(np.unique(pts.round(3), axis=0)))))
+    cents, labels = _kmeans(pts, k)
+    cents = _punch_palette(cents)
+    pal = np.clip(np.round(cents * 255.0), 0, 255).astype(np.uint8)
+    out = np.zeros_like(u8)
+    out[filled] = pal[labels]
+    logger.info("cartoon palette k=%d", k)
+    return out
+
+
+def cartoonize_image(image: Image.Image, k: int = _MAX_COLORS) -> Image.Image:
+    rgb = np.asarray(image.convert("RGB"))
+    return Image.fromarray(cartoonize_u8(rgb, k), mode="RGB")
+
+
+def _quantize_colors(colors: np.ndarray, k: int) -> np.ndarray:
+    valid = np.isfinite(colors).all(axis=1)
+    pts = np.clip(colors[valid], 0.0, 1.0)
+    if len(pts) < 8:
+        return colors
+    k = int(max(2, min(k, len(np.unique(pts.round(3), axis=0)))))
+    cents, labels = _kmeans(pts, k)
+    cents = _punch_palette(cents)
+    out = np.full_like(colors, np.nan)
+    out[valid] = cents[labels]
+    return out
+
+
+def _kmeans(pts: np.ndarray, k: int, iters: int = 14) -> tuple[np.ndarray, np.ndarray]:
+    rng = np.random.default_rng(0)
+    n = len(pts)
+    cents = np.empty((k, pts.shape[1]), dtype=np.float64)
+    cents[0] = pts[rng.integers(n)]
+    dist = np.full(n, np.inf)
+    for i in range(1, k):
+        dist = np.minimum(dist, ((pts - cents[i - 1]) ** 2).sum(axis=1))
+        w = dist / (dist.sum() + 1e-12)
+        cents[i] = pts[rng.choice(n, p=w)]
+    labels = np.zeros(n, dtype=np.int32)
+    for _ in range(iters):
+        d = ((pts[:, None, :] - cents[None, :, :]) ** 2).sum(axis=2)
+        labels = d.argmin(axis=1)
+        for i in range(k):
+            m = labels == i
+            if np.any(m):
+                cents[i] = pts[m].mean(axis=0)
+    return cents, labels
+
+
+def _punch_palette(rgb: np.ndarray) -> np.ndarray:
+    """Push each palette swatch toward cel-shaded chroma."""
+    gray = rgb.mean(axis=1, keepdims=True)
+    chroma = rgb - gray
+    sat = np.linalg.norm(chroma, axis=1, keepdims=True)
+    boost = np.where(sat > 0.04, 1.35, 1.0)
+    return np.clip(gray + chroma * boost, 0.0, 1.0)

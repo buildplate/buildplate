@@ -195,6 +195,9 @@ def _retint_mesh(mesh: Any, target_h: float, source_h: float | None, ref: Image.
     if tex is not None:
         img = tex if isinstance(tex, Image.Image) else Image.fromarray(np.asarray(tex))
         new_img = recolor_image(img.convert("RGBA"), target_h, source_h).convert("RGB")
+        from texture import cartoonize_image
+
+        new_img = cartoonize_image(new_img)
         new_img.save(out_dir / "albedo.png")
         try:
             vis.material.baseColorTexture = new_img
