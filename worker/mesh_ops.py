@@ -39,6 +39,7 @@ def orient_mesh(mesh: Any, image: Any | None = None) -> Any:
         else:
             mesh = _flip_if_head_down(mesh)
         mesh = _keep_thin_axis_as_depth(mesh)
+    mesh = _feet_end_down(mesh)
     return _sit_on_ground(mesh)
 
 
@@ -386,6 +387,31 @@ def _flip_if_head_down(mesh: Any) -> Any:
     flipped = contact_width(True)
     if flipped + 1e-8 < upright * 0.72:
         logger.info("orient flip head-down contact upright=%.3f flipped=%.3f", upright, flipped)
+        return _apply_rot(mesh, _euler(180.0, 0.0, 0.0))
+    return mesh
+
+
+def _end_clusters(verts: np.ndarray, *, low: bool) -> int:
+    y = verts[:, 1]
+    ymin = float(y.min())
+    span = float(np.ptp(y)) + 1e-8
+    sl = verts[y <= ymin + 0.15 * span] if low else verts[y >= ymin + 0.85 * span]
+    if len(sl) < 24:
+        return 0
+    scale = float(np.linalg.norm(verts.max(axis=0) - verts.min(axis=0)))
+    raw = _cluster_points(sl[:, [0, 2]], eps=0.11 * scale)
+    return sum(1 for c in raw if c["n"] >= max(30, int(0.04 * len(sl))))
+
+
+def _feet_end_down(mesh: Any) -> Any:
+    """Hat/head is one blob; feet are two. If the ground has one blob and the sky has two, flip."""
+    verts = np.asarray(mesh.vertices, dtype=float)
+    if len(verts) < 64:
+        return mesh
+    bot = _end_clusters(verts, low=True)
+    top = _end_clusters(verts, low=False)
+    if bot <= 1 and top >= 2:
+        logger.info("orient feet-end-down (ground blobs=%d sky blobs=%d)", bot, top)
         return _apply_rot(mesh, _euler(180.0, 0.0, 0.0))
     return mesh
 
