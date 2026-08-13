@@ -23,5 +23,6 @@ xatlas>=0.0.9
 opencv-python>=4.8.0
 fast-simplification>=0.1.7
 pymeshfix>=0.17.0
-# Marching cubes used by TripoSR (CPU works on Mac)
-git+https://github.com/tatsy/torchmcubes.git
+# Marching cubes for TripoSR — installed by `npx buildplate setup` (not this file).
+# Mac Metal: CPU build. NVIDIA CUDA 12.9+: setup uses USE_SYSTEM_NVTX / CPU fallback
+# so we never depend on the removed CUDA::nvToolsExt library.

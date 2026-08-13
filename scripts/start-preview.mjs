@@ -15,6 +15,7 @@ const PROXY = path.join(PKG_ROOT, "scripts/preview-proxy.mjs");
 const PREVIEW_PORT = Number(process.env.BUILDPLATE_PREVIEW_PORT || 3920);
 
 function resolveVite() {
+  // node + vite.js — Windows has no executable .bin/vite (needs vite.cmd / shell).
   const require = createRequire(import.meta.url);
   try {
     return path.join(path.dirname(require.resolve("vite/package.json")), "bin", "vite.js");
@@ -125,6 +126,7 @@ async function ensurePort80() {
   console.error("[buildplate-preview] port 80 did not come up; use :3920 as fallback");
 }
 
+// Use node + vite.js so Windows does not need the .cmd shim in .bin
 const vite = spawn(
   process.execPath,
   [resolveVite(), "--host", "localhost", "--port", String(PREVIEW_PORT)],

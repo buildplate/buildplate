@@ -21,11 +21,13 @@ Optional: `brew install --cask openscad`, or `~/buildplate/venv/bin/pip install 
 |--|--|--|
 | **Apple Silicon** | M1/M2, 16 GB unified — `quality=fast` (TripoSR) | M1 Pro/Max or M2+, **32 GB** — `quality=quality` (Hunyuan) |
 | **NVIDIA** | 8 GB VRAM — `quality=fast` | **12 GB+** VRAM — `quality=quality` |
-| **OS** | macOS 14+, Ubuntu 22.04+, Windows 11 (WSL2) | macOS on Apple Silicon |
+| **OS** | macOS 14+, Ubuntu 22.04+, Windows 11 | macOS on Apple Silicon |
 | **Node** | 20+ | 20 LTS |
 | **Python** | 3.10–3.13 | **3.12** (3.14 has no torch wheels yet) |
 
 CAD (trimesh CSG) is CPU-only and light. Mesh reconstruction needs the GPU/unified memory above. CPU-only mesh is possible and very slow — not recommended.
+
+NVIDIA **CUDA 12.9+** (Windows/Linux): `npx buildplate setup` does not need you to patch Torch. It passes `USE_SYSTEM_NVTX` for torchmcubes, and falls back to CPU marching cubes if the CUDA extension still fails. Apple Silicon uses Metal and never takes that path.
 
 ## Install
 

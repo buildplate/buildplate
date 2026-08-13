@@ -4,7 +4,7 @@
  * Picks python3.12 → 3.11 → 3.13 (skips 3.14 — torch wheels lag).
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { HOME, VENV, VENDOR, CACHE, SETUP_OK, WORKER_SRC } from "./paths.mjs";
@@ -24,6 +24,7 @@ function findPython() {
     "/opt/homebrew/bin/python3.13",
     "python3.13",
     "python3",
+    "python",
   ].filter(Boolean);
 
   for (const c of candidates) {
@@ -54,6 +55,93 @@ function venvPython() {
   return process.platform === "win32"
     ? path.join(VENV, "Scripts", "python.exe")
     : path.join(VENV, "bin", "python");
+}
+
+function torchCudaCmake(py) {
+  const r = spawnSync(
+    py,
+    [
+      "-c",
+      "import torch, pathlib; print(pathlib.Path(torch.__file__).resolve().parent / 'share' / 'cmake' / 'Caffe2' / 'public' / 'cuda.cmake')",
+    ],
+    { encoding: "utf8" },
+  );
+  if (r.status !== 0) return null;
+  const p = (r.stdout || "").trim();
+  return p && existsSync(p) ? p : null;
+}
+
+/**
+ * CUDA 12.9 removed CUDA::nvToolsExt (header-only nvtx3). PyTorch wheels still
+ * link torch::nvtoolsext → CUDA::nvToolsExt, so torchmcubes' CUDA build dies.
+ * Mac Metal never hits this file's NVTX else-branch. Idempotent.
+ */
+function patchTorchNvtxForCuda129(py) {
+  const cmake = torchCudaCmake(py);
+  if (!cmake) return false;
+  let src = readFileSync(cmake, "utf8");
+  if (src.includes("BUILDPLATE_NVTX3_STUB")) return true;
+  const re =
+    /else\(\)\s*\r?\n\s*message\(WARNING "Cannot find NVTX3, find old NVTX instead"\)\s*\r?\n\s*add_library\(torch::nvtoolsext INTERFACE IMPORTED\)\s*\r?\n\s*set_property\(TARGET torch::nvtoolsext PROPERTY INTERFACE_LINK_LIBRARIES CUDA::nvToolsExt\)\s*\r?\n\s*endif\(\)/;
+  if (!re.test(src)) return false;
+  const stub = `else()
+  # BUILDPLATE_NVTX3_STUB — CUDA 12.9+ removed CUDA::nvToolsExt
+  find_path(nvtx3_dir NAMES nvtx3 PATHS "\${CUDAToolkit_INCLUDE_DIRS}" "\${CUDA_INCLUDE_DIRS}"
+            "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.9/include"
+            "/usr/local/cuda/include")
+  if(nvtx3_dir)
+    message(STATUS "Using system NVTX3 headers at \${nvtx3_dir}")
+    add_library(torch::nvtx3 INTERFACE IMPORTED)
+    target_include_directories(torch::nvtx3 INTERFACE "\${nvtx3_dir}")
+    target_compile_definitions(torch::nvtx3 INTERFACE TORCH_CUDA_USE_NVTX3)
+  elseif(TARGET CUDA::nvtx3)
+    add_library(CUDA::nvToolsExt INTERFACE IMPORTED)
+    target_compile_definitions(CUDA::nvToolsExt INTERFACE TORCH_CUDA_USE_NVTX3)
+    target_link_libraries(CUDA::nvToolsExt INTERFACE CUDA::nvtx3)
+    add_library(torch::nvtoolsext INTERFACE IMPORTED)
+    set_property(TARGET torch::nvtoolsext PROPERTY INTERFACE_LINK_LIBRARIES CUDA::nvToolsExt)
+  else()
+    message(WARNING "Cannot find NVTX3, creating empty nvtoolsext stub")
+    add_library(torch::nvtoolsext INTERFACE IMPORTED)
+  endif()
+endif()`;
+  src = src.replace(re, stub);
+  writeFileSync(cmake, src);
+  console.log("→ patched Torch cuda.cmake for CUDA 12.9 nvtx3");
+  return true;
+}
+
+function installTorchmcubes(py) {
+  const spec = "git+https://github.com/tatsy/torchmcubes.git";
+  console.log("→ torchmcubes (TripoSR marching cubes)");
+  if (process.platform === "darwin") {
+    run(py, ["-m", "pip", "install", spec]);
+    return;
+  }
+  const withNvtx = [spec, "--config-settings=cmake.define.USE_SYSTEM_NVTX=ON"];
+  console.log(`→ ${py} -m pip install ${withNvtx.join(" ")}`);
+  let r = spawnSync(py, ["-m", "pip", "install", ...withNvtx], { stdio: "inherit" });
+  if (r.status === 0) return;
+  console.log("→ torchmcubes: CUDA 12.9 nvToolsExt missing — patch Torch cmake and retry");
+  patchTorchNvtxForCuda129(py);
+  r = spawnSync(py, ["-m", "pip", "install", ...withNvtx], { stdio: "inherit" });
+  if (r.status === 0) return;
+  console.log("→ torchmcubes CUDA build failed — CPU marching cubes (same path Mac uses)");
+  r = spawnSync(
+    py,
+    [
+      "-m",
+      "pip",
+      "install",
+      spec,
+      "--config-settings=cmake.define.CMAKE_CUDA_COMPILER=CMAKE_CUDA_COMPILER-NOTFOUND",
+    ],
+    {
+      stdio: "inherit",
+      env: { ...process.env, CMAKE_CUDA_COMPILER: "CMAKE_CUDA_COMPILER-NOTFOUND" },
+    },
+  );
+  if (r.status !== 0) process.exit(r.status ?? 1);
 }
 
 function installTorch(py) {
@@ -101,6 +189,7 @@ const py = findPython();
 if (!py) {
   console.error("No suitable Python found (need 3.10–3.13).");
   console.error("  macOS: brew install python@3.12");
+  console.error("  Windows: install Python 3.12 and set BUILDPLATE_PYTHON to python.exe");
   console.error("  Or set BUILDPLATE_PYTHON=/path/to/python3.12");
   process.exit(1);
 }
@@ -118,9 +207,7 @@ installTorch(vpy);
 
 if (!existsSync(path.join(TRIPOSR, "tsr", "system.py"))) {
   mkdirSync(VENDOR, { recursive: true });
-  if (existsSync(TRIPOSR)) {
-    spawnSync("rm", ["-rf", TRIPOSR], { stdio: "inherit" });
-  }
+  rmSync(TRIPOSR, { recursive: true, force: true });
   run("git", ["clone", "--depth", "1", "https://github.com/VAST-AI-Research/TripoSR.git", TRIPOSR]);
 } else {
   console.log("→ TripoSR vendor present");
@@ -128,9 +215,7 @@ if (!existsSync(path.join(TRIPOSR, "tsr", "system.py"))) {
 
 if (!existsSync(path.join(HUNYUAN, "hy3dgen", "shapegen", "pipelines.py"))) {
   mkdirSync(VENDOR, { recursive: true });
-  if (existsSync(HUNYUAN)) {
-    spawnSync("rm", ["-rf", HUNYUAN], { stdio: "inherit" });
-  }
+  rmSync(HUNYUAN, { recursive: true, force: true });
   run("git", ["clone", "--depth", "1", "https://github.com/Tencent-Hunyuan/Hunyuan3D-2.git", HUNYUAN]);
 } else {
   console.log("→ Hunyuan3D-2 vendor present");
@@ -150,7 +235,9 @@ if (existsSync(hyInit)) {
 }
 
 run(vpy, ["-m", "pip", "install", "-r", REQ]);
+installTorchmcubes(vpy);
 
+// TripoSR + newer torch: weights_only=False for ckpt load
 const tsrSystem = path.join(TRIPOSR, "tsr", "system.py");
 if (existsSync(tsrSystem)) {
   let src = readFileSync(tsrSystem, "utf8");
@@ -203,4 +290,6 @@ console.log("");
 console.log("CAD engines:");
 console.log("  trimesh+manifold3d — always on (agent writes trimesh_code)");
 console.log("  Optional OpenSCAD: brew install --cask openscad");
-console.log("  Optional CadQuery: ~/buildplate/venv/bin/pip install cadquery");
+console.log(
+  `  Optional CadQuery: ${path.join(VENV, process.platform === "win32" ? path.join("Scripts", "pip.exe") : path.join("bin", "pip"))} install cadquery`,
+);
