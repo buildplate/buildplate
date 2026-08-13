@@ -6,7 +6,7 @@ Local 3D for agents. Your machine compiles / reconstructs. The agent thinks (CAD
 |--|--|
 | **CAD** | Agent-authored trimesh / OpenSCAD / CadQuery → STL |
 | **Mesh** | Photo → Hunyuan (quality) or TripoSR (fast) → remesh → PBR albedo → GLB |
-| **Preview** | [http://buildplate.localhost](http://buildplate.localhost) — orbit + Export STL |
+| **Preview** | [http://buildplate.localhost](http://buildplate.localhost) — orbit, Export STL, Open in Bambu (or other installed slicers) |
 
 Optional: `brew install --cask openscad`, or `worker/.venv/bin/pip install cadquery`.
 

@@ -1,7 +1,8 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Object3D } from "three";
 import { MeshViewer } from "./MeshViewer";
 import { exportObjectToStl, downloadBlob } from "./exportStl";
+import { fetchSlicers, openInSlicer, type SlicerInfo } from "./slicers";
 
 function srcFromQuery(): string | null {
   const q = new URLSearchParams(window.location.search);
@@ -13,17 +14,27 @@ export function App() {
   const [root, setRoot] = useState<Object3D | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [slicers, setSlicers] = useState<SlicerInfo[]>([]);
+
+  useEffect(() => {
+    void fetchSlicers().then(setSlicers);
+  }, []);
 
   const onReady = useCallback((obj: Object3D | null, err?: string) => {
     setRoot(obj);
     setError(err ?? null);
   }, []);
 
+  const stlBlob = useCallback(() => {
+    if (!root) throw new Error("No mesh loaded");
+    return exportObjectToStl(root);
+  }, [root]);
+
   const onExport = useCallback(() => {
     if (!root) return;
     setBusy(true);
     try {
-      const blob = exportObjectToStl(root);
+      const blob = stlBlob();
       const name = guessName(src) || "buildplate-model.stl";
       downloadBlob(blob, name);
     } catch (err) {
@@ -31,7 +42,27 @@ export function App() {
     } finally {
       setBusy(false);
     }
-  }, [root, src]);
+  }, [root, src, stlBlob]);
+
+  const onOpenSlicer = useCallback(
+    async (id: string) => {
+      if (!root || !src) return;
+      setBusy(true);
+      setError(null);
+      try {
+        await openInSlicer(id, src, stlBlob());
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Could not open slicer");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [root, src, stlBlob],
+  );
+
+  const bambu = slicers.find((s) => s.id === "bambu");
+  const others = slicers.filter((s) => s.id !== "bambu");
+  const installedOthers = others.filter((s) => s.installed);
 
   return (
     <div className="app">
@@ -41,14 +72,39 @@ export function App() {
           <span>{src ? shortSrc(src) : "no mesh loaded"}</span>
         </div>
         <div className="actions">
+          <button type="button" disabled={!root || busy} onClick={onExport}>
+            Export STL
+          </button>
           <button
             type="button"
             className="primary"
-            disabled={!root || busy}
-            onClick={onExport}
+            disabled={!root || busy || !bambu?.installed}
+            title={bambu?.installed ? "Open this mesh in Bambu Studio" : "Bambu Studio is not installed"}
+            onClick={() => void onOpenSlicer("bambu")}
           >
-            Export STL
+            {busy ? "Opening…" : "Open in Bambu"}
           </button>
+          {installedOthers.length > 0 && (
+            <select
+              className="slicer-select"
+              disabled={!root || busy}
+              defaultValue=""
+              onChange={(e) => {
+                const id = e.target.value;
+                e.target.value = "";
+                if (id) void onOpenSlicer(id);
+              }}
+            >
+              <option value="" disabled>
+                More slicers
+              </option>
+              {installedOthers.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
       </header>
       <main className="stage">

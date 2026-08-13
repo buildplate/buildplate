@@ -93,6 +93,16 @@ button:disabled {
   cursor: not-allowed;
 }
 
+.slicer-select {
+  font: inherit;
+  color: var(--ink);
+  background: var(--bg1);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.55rem 0.7rem;
+  cursor: pointer;
+}
+
 .stage {
   position: relative;
   min-height: 0;

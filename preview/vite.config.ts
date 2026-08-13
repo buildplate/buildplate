@@ -3,6 +3,7 @@ import os from "node:os";
 import fs from "node:fs";
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
+import { slicerApi } from "./slicers-server";
 
 const OUT_DIR =
   process.env.BUILDPLATE_OUT_DIR?.trim() ||
@@ -43,7 +44,7 @@ function serveOutDir(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), serveOutDir()],
+  plugins: [react(), serveOutDir(), slicerApi()],
   server: {
     host: "localhost",
     port: 3920,

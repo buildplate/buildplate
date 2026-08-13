@@ -779,7 +779,7 @@ server.registerTool(
           type: "text",
           text:
             `No STL on disk for ${job_id} (have GLB at ${glbPath}).\n` +
-            `Open preview and click Export STL:\n${url}\n` +
+            `Open preview and click Export STL or Open in Bambu:\n${url}\n` +
             `Or re-run generate with format="stl".`,
         },
       ],
