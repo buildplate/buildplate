@@ -25,15 +25,20 @@ def postprocess_mesh(mesh: Any, *, strip_relief: bool = True) -> Any:
 
 
 def orient_mesh(mesh: Any, image: Any | None = None) -> Any:
-    """Plant feet (not the tail) and yaw to face the reference photo."""
+    """Feet on the ground, face matching the reference photo when we have one."""
     if mesh is None:
         return mesh
-    planted = _plant_feet_and_head(mesh)
-    if planted is not None:
-        mesh = planted
-    if image is not None:
-        mesh = _yaw_to_image(mesh, image)
     mesh = _keep_thin_axis_as_depth(mesh)
+    if image is not None:
+        mesh = _pose_to_image(mesh, image)
+        mesh = _pitch_off_spike(mesh, image)
+    else:
+        planted = _plant_feet_and_head(mesh)
+        if planted is not None:
+            mesh = planted
+        else:
+            mesh = _flip_if_head_down(mesh)
+        mesh = _keep_thin_axis_as_depth(mesh)
     return _sit_on_ground(mesh)
 
 
@@ -325,8 +330,8 @@ def _plant_feet_and_head(mesh: Any) -> Any | None:
     return out
 
 
-def _yaw_to_image(mesh: Any, image: Any) -> Any:
-    """Rotate around Y only so the front matches the reference photo."""
+def _pose_to_image(mesh: Any, image: Any) -> Any:
+    """Yaw around Y and optionally flip 180° about X so the photo's up matches the mesh."""
     from texture import _image_arrays, _iou, _occupancy, _preview_mesh, _resize_mask
 
     _rgb, mask = _image_arrays(image)
@@ -336,22 +341,104 @@ def _yaw_to_image(mesh: Any, image: Any) -> Any:
     faces = np.asarray(mesh.faces, dtype=int)
     v_s, f_s = _preview_mesh(verts, faces, 3500)
     center = v_s.mean(axis=0)
-    best = (-1e9, np.eye(3))
-    for yaw in range(0, 360, 15):
-        rot = _euler(0.0, yaw, 0.0)
+    best = (-1e9, np.eye(3), False)
+    for flip in (False, True):
+        base = _euler(180.0, 0.0, 0.0) if flip else np.eye(3)
+        for yaw in range(0, 360, 15):
+            rot = _euler(0.0, float(yaw), 0.0) @ base
+            vv = (v_s - center) @ rot.T
+            occ = _occupancy(vv, f_s, az=0, el=12, size=80)
+            iou = _iou(occ, target)
+            iou_m = _iou(np.fliplr(occ), target)
+            corr = _corr(occ.mean(axis=1), target_prof)
+            corr_m = _corr(np.fliplr(occ).mean(axis=1), target_prof)
+            # Vertical profile outweighs IoU: an inverted character still overlaps a lot.
+            s = iou + 1.2 * corr
+            s_m = iou_m + 1.2 * corr_m
+            if s > best[0]:
+                best = (s, rot, flip)
+            if s_m > best[0]:
+                best = (s_m, np.diag([-1.0, 1.0, 1.0]) @ rot, flip)
+    logger.info("orient pose-to-image score=%.3f flip=%s", best[0], best[2])
+    mesh = _apply_rot(mesh, best[1])
+    vv = (v_s - center) @ best[1].T
+    occ = _occupancy(vv, f_s, az=0, el=12, size=80)
+    if _corr(np.flipud(occ).mean(axis=1), target_prof) > _corr(occ.mean(axis=1), target_prof) + 0.04:
+        logger.info("orient extra 180° — occupancy still inverted vs photo")
+        mesh = _apply_rot(mesh, _euler(180.0, 0.0, 0.0))
+    return mesh
+
+
+def _flip_if_head_down(mesh: Any) -> Any:
+    """Without a photo: prefer the end whose bottom contact is two compact feet, not a head."""
+    def contact_width(flip: bool) -> float:
+        v = np.asarray(mesh.vertices, dtype=float).copy()
+        if flip:
+            v[:, 1] *= -1
+        ymin = float(v[:, 1].min())
+        span = float(np.ptp(v[:, 1])) + 1e-8
+        bot = v[v[:, 1] <= ymin + 0.12 * span]
+        if len(bot) < 12:
+            return 1e9
+        return float(np.ptp(bot[:, 0]) * np.ptp(bot[:, 2]))
+
+    upright = contact_width(False)
+    flipped = contact_width(True)
+    if flipped + 1e-8 < upright * 0.72:
+        logger.info("orient flip head-down contact upright=%.3f flipped=%.3f", upright, flipped)
+        return _apply_rot(mesh, _euler(180.0, 0.0, 0.0))
+    return mesh
+
+
+def _bottom_aniso(mesh: Any) -> float:
+    v = np.asarray(mesh.vertices, dtype=float)
+    ymin = float(v[:, 1].min())
+    span = float(np.ptp(v[:, 1])) + 1e-8
+    bot = v[v[:, 1] <= ymin + 0.12 * span]
+    if len(bot) < 16:
+        return 1e9
+    c = bot.mean(axis=0)
+    try:
+        _, s, _ = np.linalg.svd(bot - c, full_matrices=False)
+    except Exception:
+        return 1e9
+    return float(s[0] / (s[-1] + 1e-8))
+
+
+def _pitch_off_spike(mesh: Any, image: Any) -> Any:
+    """If the mesh is sitting on a tail/spike, pitch until a compact base is down."""
+    from texture import _image_arrays, _occupancy, _preview_mesh, _resize_mask
+
+    base_aniso = _bottom_aniso(mesh)
+    if base_aniso < 5.5:
+        return mesh
+
+    _rgb, mask = _image_arrays(image)
+    target = _resize_mask(mask, 80)
+    target_prof = target.mean(axis=1)
+    verts = np.asarray(mesh.vertices, dtype=float)
+    faces = np.asarray(mesh.faces, dtype=int)
+    v_s, f_s = _preview_mesh(verts, faces, 2500)
+    center = v_s.mean(axis=0)
+    best = (-1e9, np.eye(3), base_aniso)
+    for pitch in range(-75, 80, 15):
+        rot = _euler(float(pitch), 0.0, 0.0)
+        cand = _apply_rot(mesh, rot)
+        aniso = _bottom_aniso(cand)
         vv = (v_s - center) @ rot.T
         occ = _occupancy(vv, f_s, az=0, el=12, size=80)
-        iou = _iou(occ, target)
-        iou_m = _iou(np.fliplr(occ), target)
         corr = _corr(occ.mean(axis=1), target_prof)
-        corr_m = _corr(np.fliplr(occ).mean(axis=1), target_prof)
-        s = iou + 0.4 * corr
-        s_m = iou_m + 0.4 * corr_m
+        s = -0.08 * aniso + corr
         if s > best[0]:
-            best = (s, rot)
-        if s_m > best[0]:
-            best = (s_m, np.diag([-1.0, 1.0, 1.0]) @ rot)
-    logger.info("orient yaw-to-image score=%.3f", best[0])
+            best = (s, rot, aniso)
+    if best[2] >= base_aniso * 0.85:
+        return mesh
+    logger.info(
+        "orient pitch-off-spike aniso %.1f → %.1f score=%.3f",
+        base_aniso,
+        best[2],
+        best[0],
+    )
     return _apply_rot(mesh, best[1])
 
 

@@ -170,7 +170,10 @@ def _occupancy(verts: np.ndarray, faces: np.ndarray, az: int, el: int, size: int
     lo = xy.min(axis=0)
     span = np.maximum(xy.max(axis=0) - lo, 1e-8)
     scale = (size - 3) / float(span.max())
-    pts = ((xy - lo) * scale + 1.0).astype(np.int32)
+    pts = (xy - lo) * scale + 1.0
+    # Camera +Y is up; image / OpenCV +Y is down. Put the head at the top of the mask.
+    pts[:, 1] = (size - 1) - pts[:, 1]
+    pts = np.round(pts).astype(np.int32)
     occ = np.zeros((size, size), dtype=np.uint8)
     tris = pts[faces]
     for tri in tris:
