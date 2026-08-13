@@ -62,7 +62,7 @@ export async function ensureWorker() {
     return {
       online: false,
       ready: false,
-      detail: "Worker venv missing — run: npx buildplate setup",
+      detail: "Worker venv missing — run: npx -y github:buildplate/buildplate setup",
     };
   }
 

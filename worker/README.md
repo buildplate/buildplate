@@ -1,9 +1,9 @@
 # Worker
 
-Local FastAPI brain on `:8081`. Prefer `npx buildplate setup` and `npx buildplate start` — see the [README](../README.md).
+Local FastAPI brain on `:8081`. Prefer `npx -y github:buildplate/buildplate setup` and `npx -y github:buildplate/buildplate start` — see the [README](../README.md).
 
 ```bash
-npx buildplate worker          # http://127.0.0.1:8081
+npx -y github:buildplate/buildplate worker          # http://127.0.0.1:8081
 # or
 ~/buildplate/venv/bin/python worker/server.py --lazy --verbose
 ```

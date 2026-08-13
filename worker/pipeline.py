@@ -22,7 +22,7 @@ import sys
 
 from dirs import vendor_dir
 
-# Vendored TripoSR (cloned by npx buildplate setup into ~/buildplate/vendor)
+# Vendored TripoSR (cloned by npx -y github:buildplate/buildplate setup into ~/buildplate/vendor)
 _VENDOR_TSR = vendor_dir() / "TripoSR"
 if _VENDOR_TSR.is_dir() and str(_VENDOR_TSR) not in sys.path:
     sys.path.insert(0, str(_VENDOR_TSR))

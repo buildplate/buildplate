@@ -14,7 +14,7 @@ function logWorker(level, msg, extra) {
 }
 
 export function missingWorkerError() {
-  return "Local worker is not running. Run: npx buildplate setup && npx buildplate start";
+  return "Local worker is not running. Run: npx -y github:buildplate/buildplate setup && npx -y github:buildplate/buildplate start";
 }
 
 /**

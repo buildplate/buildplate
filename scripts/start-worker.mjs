@@ -5,7 +5,7 @@ import { venvPython, venvReady, WORKER_SRC, workerEnv } from "./paths.mjs";
 
 const py = venvPython();
 if (!venvReady() || !existsSync(py)) {
-  console.error("Worker venv missing. Run: npx buildplate setup");
+  console.error("Worker venv missing. Run: npx -y github:buildplate/buildplate setup");
   process.exit(1);
 }
 

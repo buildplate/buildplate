@@ -2,7 +2,7 @@
 
 Local MCP. You think; the worker only compiles / reconstructs.
 
-Install (users): `npx -y buildplate setup` then `npx -y buildplate start`. MCP command is `npx -y buildplate`. Data: `~/buildplate`.
+Install (users): `npx -y github:buildplate/buildplate setup` then `npx -y github:buildplate/buildplate start`. MCP command is `npx -y github:buildplate/buildplate`. Data: `~/buildplate`.
 
 Tools: `health`, `save_reference`, `generate`, `refine`, `export_stl`, `preview`.
 

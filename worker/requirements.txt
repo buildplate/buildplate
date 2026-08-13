@@ -1,5 +1,5 @@
 # Buildplate worker — multi-OS (macOS Metal / NVIDIA CUDA / CPU)
-# TripoSR is cloned into ~/buildplate/vendor/TripoSR by `npx buildplate setup` (not pip).
+# TripoSR is cloned into ~/buildplate/vendor/TripoSR by `npx -y github:buildplate/buildplate setup` (not pip).
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
 pydantic>=2.0
@@ -23,6 +23,6 @@ xatlas>=0.0.9
 opencv-python>=4.8.0
 fast-simplification>=0.1.7
 pymeshfix>=0.17.0
-# Marching cubes for TripoSR — installed by `npx buildplate setup` (not this file).
+# Marching cubes for TripoSR — installed by `npx -y github:buildplate/buildplate setup` (not this file).
 # Mac Metal: CPU build. NVIDIA CUDA 12.9+: setup uses USE_SYSTEM_NVTX / CPU fallback
 # so we never depend on the removed CUDA::nvToolsExt library.

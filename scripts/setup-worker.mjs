@@ -280,8 +280,8 @@ writeFileSync(
 
 console.log("");
 console.log("Setup complete. Models and venv live in ~/buildplate");
-console.log("  Start:     npx buildplate start");
-console.log("  MCP stdio: npx buildplate");
+console.log("  Start:     npx -y github:buildplate/buildplate start");
+console.log("  MCP stdio: npx -y github:buildplate/buildplate");
 console.log("");
 console.log("Mesh vendors:");
 console.log("  triposr  — fast (always)");

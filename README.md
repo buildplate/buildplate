@@ -27,11 +27,11 @@ Optional: `brew install --cask openscad`, or `~/buildplate/venv/bin/pip install 
 
 CAD (trimesh CSG) is CPU-only and light. Mesh reconstruction needs the GPU/unified memory above. CPU-only mesh is possible and very slow — not recommended.
 
-NVIDIA **CUDA 12.9+** (Windows/Linux): `npx buildplate setup` does not need you to patch Torch. It passes `USE_SYSTEM_NVTX` for torchmcubes, and falls back to CPU marching cubes if the CUDA extension still fails. Apple Silicon uses Metal and never takes that path.
+NVIDIA **CUDA 12.9+** (Windows/Linux): `npx -y github:buildplate/buildplate setup` does not need you to patch Torch. It passes `USE_SYSTEM_NVTX` for torchmcubes, and falls back to CPU marching cubes if the CUDA extension still fails. Apple Silicon uses Metal and never takes that path.
 
 ## Install
 
-No git clone. The npm package is the product: `npx buildplate` is the CLI and the MCP server. Python venv, model vendors, and job files live in **`~/buildplate`**.
+No git clone. Install with npx from GitHub: `npx -y github:buildplate/buildplate`. Python venv, model vendors, and job files live in **`~/buildplate`**.
 
 Need **Node 20+** and **Python 3.10–3.13** (3.12 best).
 
@@ -45,18 +45,18 @@ Paste the block into Cursor, Claude Code, Claude Desktop, Codex, or any MCP agen
 ```
 Set up Buildplate (local 3D MCP) on this machine, then add it to THIS product as an MCP server.
 
-Do NOT git clone. Install the npm package via npx.
+Do NOT git clone. Install via npx from GitHub (the npm name is not on the registry yet).
 
 ## Install (run; skip a step if already done)
 Need Node 20+ and Python 3.10–3.13 (3.12 best).
-  npx -y buildplate setup    # once — venv, PyTorch, TripoSR, Hunyuan into ~/buildplate
-  npx -y buildplate start    # worker :8081 + preview http://buildplate.localhost
+  npx -y github:buildplate/buildplate setup    # once — venv, PyTorch, TripoSR, Hunyuan into ~/buildplate
+  npx -y github:buildplate/buildplate start    # worker :8081 + preview http://buildplate.localhost
 
 Env: BUILDPLATE_PREVIEW_URL=http://buildplate.localhost
-The MCP auto-starts the worker if it is not up; preview still wants `npx buildplate start` (or `npx buildplate preview`).
+The MCP auto-starts the worker if it is not up; preview still wants `npx -y github:buildplate/buildplate start` (or `… preview`).
 
 ## Add MCP to this client (detect which you are; do not ask the user to click around)
-Always: command=npx, args=["-y", "buildplate"]. No clone path. No ${workspaceFolder}.
+Always: command=npx, args=["-y", "github:buildplate/buildplate"]. No clone path. No ${workspaceFolder}.
 
 Cursor:
   Merge ~/.cursor/mcp.json (user-level, all workspaces) — create the file if missing:
@@ -64,7 +64,7 @@ Cursor:
     "mcpServers": {
       "buildplate": {
         "command": "npx",
-        "args": ["-y", "buildplate"],
+        "args": ["-y", "github:buildplate/buildplate"],
         "env": { "BUILDPLATE_PREVIEW_URL": "http://buildplate.localhost" }
       }
     }
@@ -72,7 +72,7 @@ Cursor:
   Project .cursor/mcp.json with the same snippet also works. Reload MCP.
 
 Claude Code:
-  claude mcp add --transport stdio --env BUILDPLATE_PREVIEW_URL=http://buildplate.localhost buildplate -- npx -y buildplate
+  claude mcp add --transport stdio --env BUILDPLATE_PREVIEW_URL=http://buildplate.localhost buildplate -- npx -y github:buildplate/buildplate
 
 Claude Desktop:
   Merge into mcpServers:
@@ -82,7 +82,7 @@ Claude Desktop:
     "mcpServers": {
       "buildplate": {
         "command": "npx",
-        "args": ["-y", "buildplate"],
+        "args": ["-y", "github:buildplate/buildplate"],
         "env": { "BUILDPLATE_PREVIEW_URL": "http://buildplate.localhost" }
       }
     }
@@ -90,14 +90,14 @@ Claude Desktop:
   Fully quit and relaunch Claude Desktop.
 
 Codex (CLI / IDE):
-  codex mcp add buildplate --env BUILDPLATE_PREVIEW_URL=http://buildplate.localhost -- npx -y buildplate
+  codex mcp add buildplate --env BUILDPLATE_PREVIEW_URL=http://buildplate.localhost -- npx -y github:buildplate/buildplate
   Or merge into ~/.codex/config.toml:
   [mcp_servers.buildplate]
   command = "npx"
-  args = ["-y", "buildplate"]
+  args = ["-y", "github:buildplate/buildplate"]
   env = { BUILDPLATE_PREVIEW_URL = "http://buildplate.localhost" }
 
-Any other MCP client: stdio, command=npx, args=["-y", "buildplate"], same env.
+Any other MCP client: stdio, command=npx, args=["-y", "github:buildplate/buildplate"], same env.
 
 Then call health. Tools: health, save_reference, generate, refine, export_stl, preview.
 
@@ -136,8 +136,8 @@ In-repo, agents can also read [`AGENTS.md`](./AGENTS.md).
 <summary><strong>Show install steps</strong></summary>
 
 ```bash
-npx -y buildplate setup
-npx -y buildplate start
+npx -y github:buildplate/buildplate setup
+npx -y github:buildplate/buildplate start
 ```
 
 `setup` is once (venv + PyTorch + TripoSR + Hunyuan into `~/buildplate`). `start` runs the worker on `:8081` and preview at **http://buildplate.localhost**.
@@ -151,7 +151,7 @@ Then add MCP — same snippet for every client, no clone path:
   "mcpServers": {
     "buildplate": {
       "command": "npx",
-      "args": ["-y", "buildplate"],
+      "args": ["-y", "github:buildplate/buildplate"],
       "env": { "BUILDPLATE_PREVIEW_URL": "http://buildplate.localhost" }
     }
   }
@@ -160,14 +160,14 @@ Then add MCP — same snippet for every client, no clone path:
 
 #### Cursor
 
-[![Add to Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](cursor://anysphere.cursor-deeplink/mcp/install?name=buildplate&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsImJ1aWxkcGxhdGUiXSwiZW52Ijp7IkJVSUxEUExBVEVfUFJFVklFV19VUkwiOiJodHRwOi8vYnVpbGRwbGF0ZS5sb2NhbGhvc3QifX0=)
+[![Add to Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](cursor://anysphere.cursor-deeplink/mcp/install?name=buildplate&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsImdpdGh1YjpidWlsZHBsYXRlL2J1aWxkcGxhdGUiXSwiZW52Ijp7IkJVSUxEUExBVEVfUFJFVklFV19VUkwiOiJodHRwOi8vYnVpbGRwbGF0ZS5sb2NhbGhvc3QifX0=)
 
 Or merge that JSON into `~/.cursor/mcp.json` (all workspaces) or project `.cursor/mcp.json`.
 
 #### Claude Code
 
 ```bash
-claude mcp add --transport stdio --env BUILDPLATE_PREVIEW_URL=http://buildplate.localhost buildplate -- npx -y buildplate
+claude mcp add --transport stdio --env BUILDPLATE_PREVIEW_URL=http://buildplate.localhost buildplate -- npx -y github:buildplate/buildplate
 ```
 
 #### Claude Desktop
@@ -177,7 +177,7 @@ claude mcp add --transport stdio --env BUILDPLATE_PREVIEW_URL=http://buildplate.
 #### Codex
 
 ```bash
-codex mcp add buildplate --env BUILDPLATE_PREVIEW_URL=http://buildplate.localhost -- npx -y buildplate
+codex mcp add buildplate --env BUILDPLATE_PREVIEW_URL=http://buildplate.localhost -- npx -y github:buildplate/buildplate
 ```
 
 Or `~/.codex/config.toml`:
@@ -185,7 +185,7 @@ Or `~/.codex/config.toml`:
 ```toml
 [mcp_servers.buildplate]
 command = "npx"
-args = ["-y", "buildplate"]
+args = ["-y", "github:buildplate/buildplate"]
 env = { BUILDPLATE_PREVIEW_URL = "http://buildplate.localhost" }
 ```
 
@@ -233,7 +233,7 @@ npm run setup
 npm start
 ```
 
-`npm start` is `npx buildplate start` against this checkout. MCP for local hacks: `node cli.mjs` (stdio) or point a client at that CLI.
+`npm start` is `npx -y github:buildplate/buildplate start` against this checkout. MCP for local hacks: `node cli.mjs` (stdio) or point a client at that CLI.
 
 ## License
 

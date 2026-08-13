@@ -22,7 +22,7 @@ function resolveVite() {
   } catch {
     const nested = path.join(PREVIEW_SRC, "node_modules", "vite", "bin", "vite.js");
     if (existsSync(nested)) return nested;
-    throw new Error("vite not found — reinstall the buildplate package (npm i / npx -y buildplate)");
+    throw new Error("vite not found — reinstall: npx -y github:buildplate/buildplate");
   }
 }
 

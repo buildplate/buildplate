@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Optional curl|bash wrapper. Prefer: npx -y buildplate setup
+# Optional curl|bash wrapper. Prefer: npx -y github:buildplate/buildplate setup
 set -euo pipefail
 
 if ! command -v node >/dev/null 2>&1; then
@@ -13,12 +13,12 @@ if [ "$NODE_MAJOR" -lt 20 ]; then
   exit 1
 fi
 
-echo "→ npx -y buildplate setup"
-npx -y buildplate setup
+echo "→ npx -y github:buildplate/buildplate setup"
+npx -y github:buildplate/buildplate setup
 
 echo
 echo "Setup complete. Next:"
-echo "  npx buildplate start"
+echo "  npx -y github:buildplate/buildplate start"
 echo
 echo "MCP (Cursor / Claude / Codex):"
 cat <<EOF
@@ -26,7 +26,7 @@ cat <<EOF
   "mcpServers": {
     "buildplate": {
       "command": "npx",
-      "args": ["-y", "buildplate"],
+      "args": ["-y", "github:buildplate/buildplate"],
       "env": { "BUILDPLATE_PREVIEW_URL": "http://buildplate.localhost" }
     }
   }

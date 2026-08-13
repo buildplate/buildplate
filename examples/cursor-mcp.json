@@ -2,7 +2,7 @@
   "mcpServers": {
     "buildplate": {
       "command": "npx",
-      "args": ["-y", "buildplate"],
+      "args": ["-y", "github:buildplate/buildplate"],
       "env": {
         "BUILDPLATE_PREVIEW_URL": "http://buildplate.localhost"
       }

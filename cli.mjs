@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Buildplate CLI — what `npx buildplate` runs.
+ * Buildplate CLI — what `npx -y github:buildplate/buildplate` runs.
  *
  *   (no args) / mcp   MCP stdio for Cursor, Claude, Codex, …
  *   setup             Python venv + PyTorch + TripoSR + Hunyuan → ~/buildplate
@@ -18,9 +18,9 @@ const cmd = args[0];
 const HELP = `Buildplate — local 3D MCP (CAD + mesh) on your machine.
 
 Usage:
-  npx buildplate setup      once — Python venv, PyTorch, TripoSR, Hunyuan
-  npx buildplate start      worker + preview (http://buildplate.localhost)
-  npx buildplate            MCP stdio (Cursor / Claude / Codex run this)
+  npx -y github:buildplate/buildplate setup      once — Python venv, PyTorch, TripoSR, Hunyuan
+  npx -y github:buildplate/buildplate start      worker + preview (http://buildplate.localhost)
+  npx -y github:buildplate/buildplate            MCP stdio (Cursor / Claude / Codex run this)
 
 Need Node 20+ and Python 3.10–3.13 (3.12 best). Data: ~/buildplate
 `;

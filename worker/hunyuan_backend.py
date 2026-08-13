@@ -48,7 +48,7 @@ class HunyuanBackend:
             return
         if not hunyuan_available():
             raise RuntimeError(
-                "Hunyuan3D-2 vendor missing. Run: npx buildplate setup"
+                "Hunyuan3D-2 vendor missing. Run: npx -y github:buildplate/buildplate setup"
             )
         vendor = str(_VENDOR)
         if vendor not in sys.path:
