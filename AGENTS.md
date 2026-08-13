@@ -32,7 +32,7 @@ Characters, toys, figurines. **Requires a photo.**
 save_reference → generate({ backend: "mesh", image_path, prompt, quality: "quality" })
 ```
 
-`quality=fast` is TripoSR (softer, quicker). Text-only mesh only with `allow_text_only=true` (weak).
+`quality=fast` is TripoSR (softer, quicker). Text-only mesh: `allow_text_only=true` (SDXL-Turbo paints a reference first).
 
 Do **not** use mesh for hard-edged products (printers, enclosures, etc.).
 

@@ -114,11 +114,16 @@ class HunyuanBackend:
         if not self._loaded:
             self.load()
         assert self._pipe is not None
-        if image is None:
-            raise ValueError("Hunyuan quality path requires a reference image")
-
         out_dir.mkdir(parents=True, exist_ok=True)
         t0 = time.time()
+        if image is None:
+            if not prompt or not prompt.strip():
+                raise ValueError("prompt or image required")
+            from text2img import render_subject, unload as unload_t2i
+
+            image = render_subject(prompt, size=768)
+            image.save(out_dir / "reference.png")
+            unload_t2i()
         image = image.convert("RGBA")
         image.save(out_dir / "input.png")
         cutout = remove_bg(image)

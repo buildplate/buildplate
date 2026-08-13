@@ -61,7 +61,7 @@ Prefer trimesh_code (always on). Example:
 save_reference → generate({ backend: "mesh", prompt, image_path, quality: "quality" })
 quality=quality uses Hunyuan3D-2mini shape + remesh + view-projected PBR albedo (slower, better).
 quality=fast uses TripoSR + remesh + the same albedo bake.
-Text-only mesh only with allow_text_only=true (weak).
+Text-only mesh only with allow_text_only=true (SDXL-Turbo reference, then image→mesh).
 
 ## After
 Preview. Color/material follow-ups: refine({ job_id, prompt }) — keeps the mesh, retints albedo.
@@ -86,7 +86,7 @@ WHEN TO USE backend=mesh (organic / look-alike photo):
   REQUIRED: image_path from save_reference (user attachment or a clean web product photo).
   quality="quality" (default): Hunyuan3D-2mini shape + remesh + PBR albedo from the photo.
   quality="fast": TripoSR + remesh + the same albedo bake. Seconds, softer.
-  Text-only mesh is weak — only with allow_text_only=true.
+  Text-only mesh (allow_text_only=true): SDXL-Turbo paints a reference, then the same image→mesh path. A real photo still wins.
 
 DO NOT use mesh for hard-edged products (e.g. Bambu Lab P1S) expecting CAD-clean results.
 If you call generate without enough fields, the response includes a recommendation + example args — follow it and retry.
@@ -616,7 +616,7 @@ server.registerTool(
                 AGENT_PLAYBOOK +
                 "\nFor mechanical parts: backend=cad + trimesh_code/openscad.\n" +
                 "For organic: save_reference + image_path.\n" +
-                "To force weak text→mesh: allow_text_only=true.",
+                "To force text→mesh (SDXL-Turbo reference): allow_text_only=true.",
             },
           ],
           isError: true,

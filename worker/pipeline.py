@@ -2,7 +2,8 @@
 Buildplate mesh backends.
 
 Primary path (multi-OS):
-  text → SD-Turbo (diffusers) → rembg → TripoSR → GLB/STL
+  text → SDXL-Turbo → rembg → TripoSR → GLB/STL
+  or image → rembg → Hunyuan / TripoSR
 
 Works on Apple Silicon (MPS), NVIDIA (CUDA), and CPU (slow).
 """
@@ -116,14 +117,13 @@ class StubBackend(Backend):
 
 
 class TripoSRBackend(Backend):
-    """SD-Turbo (text→image) + rembg + TripoSR (image→mesh)."""
+    """SDXL-Turbo (text→image) + rembg + TripoSR (image→mesh)."""
 
     name = "triposr"
 
     def __init__(self, device: DeviceInfo | None = None):
         self.device = device or pick_device()
         self._tsr = None
-        self._t2i = None
         self._rembg_session = None
         self._loaded = False
         self._load_error: str | None = None
@@ -144,34 +144,14 @@ class TripoSRBackend(Backend):
             from tsr.system import TSR
 
             # TripoSR on MPS: float32 — grid_sample breaks with Half/Float mix.
-            # SD-Turbo can still use float16 on Metal/CUDA.
             tsr_dtype = torch.float32
-            t2i_dtype = torch.float16 if self.device.kind in ("mps", "cuda") else torch.float32
-            logger.info(
-                "Loading TripoSR on %s (tsr=%s, t2i=%s)…",
-                self.device.label,
-                tsr_dtype,
-                t2i_dtype,
-            )
+            logger.info("Loading TripoSR on %s (tsr=%s)…", self.device.label, tsr_dtype)
             self._tsr = TSR.from_pretrained(
                 "stabilityai/TripoSR",
                 config_name="config.yaml",
                 weight_name="model.ckpt",
             )
             self._tsr.to(self.device.torch_device)
-
-            logger.info("Loading SD-Turbo for text→image…")
-            from diffusers import AutoPipelineForText2Image
-
-            pipe_kwargs = {"torch_dtype": t2i_dtype}
-            if t2i_dtype == torch.float16:
-                pipe_kwargs["variant"] = "fp16"
-
-            self._t2i = AutoPipelineForText2Image.from_pretrained(
-                "stabilityai/sd-turbo",
-                **pipe_kwargs,
-            )
-            self._t2i.to(self.device.torch_device)
             self._loaded = True
             self._load_error = None
             logger.info("Backend ready in %.1fs", time.time() - t0)
@@ -180,22 +160,6 @@ class TripoSRBackend(Backend):
             self._load_error = str(err)
             logger.exception("Failed to load TripoSR backend: %s", err)
             raise
-
-    def _text_to_image(self, prompt: str) -> Image.Image:
-        assert self._t2i is not None
-        subject = prompt.strip().rstrip(".")
-        # SD-Turbo loves inventing floors/second subjects — be forceful.
-        enriched = (
-            f"single {subject}, one character only, 3D vinyl toy figurine, "
-            f"full body centered, plain pure white background, "
-            f"no floor, no ground, no shadow, no base, no scenery, no second figure"
-        )
-        result = self._t2i(
-            prompt=enriched,
-            num_inference_steps=4,
-            guidance_scale=0.0,
-        )
-        return result.images[0].convert("RGBA")
 
     def generate(
         self,
@@ -218,8 +182,11 @@ class TripoSRBackend(Backend):
         if image is None:
             if not prompt or not prompt.strip():
                 raise ValueError("prompt or image required")
-            image = self._text_to_image(prompt)
+            from text2img import render_subject, unload as unload_t2i
+
+            image = render_subject(prompt)
             image.save(out_dir / "reference.png")
+            unload_t2i()
         else:
             image = image.convert("RGBA")
             image.save(out_dir / "input.png")

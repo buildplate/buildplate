@@ -111,7 +111,7 @@ CAD — brackets, boxes, enclosures, mm / holes / flats:
 Mesh — characters, toys, organic / look-like-a-photo:
   save_reference (user photo or a clean web image)
   generate({ backend: "mesh", image_path, prompt, quality: "quality" })
-  quality=fast is TripoSR (softer, quicker). Do not use mesh for hard-edged products.
+  quality=fast is TripoSR (softer, quicker). Text-only paints an SDXL-Turbo reference first. Do not use mesh for hard-edged products.
 
 If generate is incomplete it returns a retry recipe — follow it. Then preview.
 
@@ -199,4 +199,4 @@ env = { BUILDPLATE_PREVIEW_URL = "http://buildplate.localhost" }
 
 ## License
 
-Code: MIT. Model weights (TripoSR, SD-Turbo, Hunyuan3D-2mini) have their own licenses and download on first use.
+Code: MIT. Model weights (TripoSR, SDXL-Turbo, Hunyuan3D-2mini) have their own licenses and download on first use.

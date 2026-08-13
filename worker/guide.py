@@ -46,7 +46,7 @@ trimesh sketch:
 1) save_reference(source_path=...) → path
 2) generate({ "backend": "mesh", "prompt": "...", "image_path": "<path>", "quality": "quality" })
 quality=quality → Hunyuan3D-2mini + remesh + PBR albedo. quality=fast → TripoSR + remesh + albedo.
-Text-only mesh is weak — only with allow_text_only=true.
+Text-only mesh: allow_text_only=true (SDXL-Turbo reference, then image→mesh).
 
 ## After
 Preview; iterate CAD by editing source. Color follow-ups on a mesh: refine({job_id, prompt}) — keeps geometry.
