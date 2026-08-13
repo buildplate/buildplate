@@ -10,12 +10,13 @@ import numpy as np
 logger = logging.getLogger("buildplate-worker")
 
 
-def postprocess_mesh(mesh: Any) -> Any:
+def postprocess_mesh(mesh: Any, *, strip_relief: bool = True) -> Any:
     if mesh is None:
         return mesh
 
     mesh = _keep_best_component(mesh)
-    mesh = _strip_relief_backing(mesh)
+    if strip_relief:
+        mesh = _strip_relief_backing(mesh)
     mesh = _remove_large_planar_facets(mesh)
     mesh = _pca_upright(mesh)
     mesh = _trim_horizontal_brims(mesh)
@@ -71,7 +72,7 @@ def _strip_relief_backing(mesh: Any) -> Any:
         centered = verts - center
         _, s, vh = np.linalg.svd(centered, full_matrices=False)
         thin_ratio = float(s[-1] / (s[0] + 1e-8))
-        if thin_ratio > 0.45:
+        if thin_ratio > 0.16:
             return mesh
 
         normal = vh[-1]

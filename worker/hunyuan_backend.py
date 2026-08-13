@@ -134,7 +134,7 @@ class HunyuanBackend:
             image=composited,
             num_inference_steps=steps,
         )
-        mesh = postprocess_mesh(outputs[0])
+        mesh = postprocess_mesh(outputs[0], strip_relief=False)
         return finish_generated_mesh(
             mesh,
             out_dir=out_dir,
