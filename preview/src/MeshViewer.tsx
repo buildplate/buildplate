@@ -112,7 +112,7 @@ function FitOnce({
     const fitWidth = fitHeight / aspect;
     const distance = Math.max(fitHeight, fitWidth) * 1.45;
 
-    const dir = new THREE.Vector3(1, 0.85, 1.25).normalize();
+    const dir = new THREE.Vector3(1, 0.42, 1.35).normalize();
     persp.position.copy(center).addScaledVector(dir, distance);
     persp.near = Math.max(0.01, distance / 2000);
     persp.far = Math.max(20000, distance * 40);

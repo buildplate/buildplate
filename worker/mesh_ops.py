@@ -19,7 +19,7 @@ def postprocess_mesh(mesh: Any, *, strip_relief: bool = True) -> Any:
         mesh = _strip_relief_backing(mesh)
     mesh = _remove_large_planar_facets(mesh)
     mesh = _pca_upright(mesh)
-    if _shape_kind(mesh) != "oblate":
+    if _shape_kind(mesh) not in ("oblate", "chunky"):
         mesh = _trim_horizontal_brims(mesh)
     mesh = _keep_best_component(mesh)
     return mesh
@@ -29,12 +29,13 @@ def orient_mesh(mesh: Any, image: Any | None = None) -> Any:
     """Feet on the ground, face matching the reference photo when we have one."""
     if mesh is None:
         return mesh
-    oblate = _shape_kind(mesh) == "oblate"
-    if not oblate:
+    kind = _shape_kind(mesh)
+    if kind not in ("oblate", "chunky"):
         mesh = _keep_thin_axis_as_depth(mesh)
     if image is not None:
         mesh = _pose_to_image(mesh, image)
-        if not oblate:
+        mesh = _yaw_photo_to_front(mesh, image)
+        if kind not in ("oblate", "chunky"):
             mesh = _pitch_off_spike(mesh, image)
     else:
         planted = _plant_feet_and_head(mesh)
@@ -42,17 +43,17 @@ def orient_mesh(mesh: Any, image: Any | None = None) -> Any:
             mesh = planted
         else:
             mesh = _flip_if_head_down(mesh)
-        if not oblate:
+        if kind not in ("oblate", "chunky"):
             mesh = _keep_thin_axis_as_depth(mesh)
-    if oblate:
+    if kind == "oblate":
         mesh = _wide_end_down(mesh)
-    else:
+    elif kind != "chunky":
         mesh = _feet_end_down(mesh)
     return _sit_on_ground(mesh)
 
 
 def _shape_kind(mesh: Any) -> str:
-    """pancake = relief card; oblate = hat/plate/bowl; upright = figurine."""
+    """pancake = relief card; oblate = hat/plate/bowl; chunky = helmet/mask; upright = figurine."""
     verts = np.asarray(mesh.vertices, dtype=float)
     if len(verts) < 32:
         return "upright"
@@ -66,6 +67,8 @@ def _shape_kind(mesh: Any) -> str:
         return "pancake"
     if r_mid > 0.85 and r_thin < 0.70:
         return "oblate"
+    if r_thin > 0.60:
+        return "chunky"
     return "upright"
 
 
@@ -223,6 +226,9 @@ def _pca_upright(mesh: Any) -> Any:
     r_thin = float(s[2] / (s[0] + 1e-8))
     if r_mid > 0.85 and 0.22 <= r_thin < 0.70:
         return _pca_oblate_sit(mesh, vh)
+    if r_thin > 0.60:
+        logger.info("pca skip isotropic r_thin=%.3f", r_thin)
+        return mesh
 
     x_axis = vh[1]
     y_axis = vh[0]
@@ -413,7 +419,7 @@ def _plant_feet_and_head(mesh: Any) -> Any | None:
 
 
 def _pose_to_image(mesh: Any, image: Any) -> Any:
-    """Yaw around Y and optionally flip 180° about X so the photo's up matches the mesh."""
+    """Yaw + pitch so the photo's up/silhouette match the mesh."""
     from texture import _image_arrays, _iou, _occupancy, _preview_mesh, _resize_mask
 
     _rgb, mask = _image_arrays(image)
@@ -423,25 +429,32 @@ def _pose_to_image(mesh: Any, image: Any) -> Any:
     faces = np.asarray(mesh.faces, dtype=int)
     v_s, f_s = _preview_mesh(verts, faces, 3500)
     center = v_s.mean(axis=0)
-    best = (-1e9, np.eye(3), False)
+    best = (-1e9, np.eye(3), False, 0.0)
     for flip in (False, True):
         base = _euler(180.0, 0.0, 0.0) if flip else np.eye(3)
-        for yaw in range(0, 360, 15):
-            rot = _euler(0.0, float(yaw), 0.0) @ base
-            vv = (v_s - center) @ rot.T
-            occ = _occupancy(vv, f_s, az=0, el=12, size=80)
-            iou = _iou(occ, target)
-            iou_m = _iou(np.fliplr(occ), target)
-            corr = _corr(occ.mean(axis=1), target_prof)
-            corr_m = _corr(np.fliplr(occ).mean(axis=1), target_prof)
-            # Vertical profile outweighs IoU: an inverted character still overlaps a lot.
-            s = iou + 1.2 * corr
-            s_m = iou_m + 1.2 * corr_m
-            if s > best[0]:
-                best = (s, rot, flip)
-            if s_m > best[0]:
-                best = (s_m, np.diag([-1.0, 1.0, 1.0]) @ rot, flip)
-    logger.info("orient pose-to-image score=%.3f flip=%s", best[0], best[2])
+        for pitch in range(-30, 31, 15):
+            for yaw in range(0, 360, 15):
+                rot = _euler(float(pitch), float(yaw), 0.0) @ base
+                vv = (v_s - center) @ rot.T
+                occ = _occupancy(vv, f_s, az=0, el=12, size=80)
+                iou = _iou(occ, target)
+                iou_m = _iou(np.fliplr(occ), target)
+                corr = _corr(occ.mean(axis=1), target_prof)
+                corr_m = _corr(np.fliplr(occ).mean(axis=1), target_prof)
+                # Vertical profile outweighs IoU: an inverted character still overlaps a lot.
+                # Prefer small pitch so round helmets don't nod into the floor.
+                s = iou + 1.2 * corr - 0.004 * abs(pitch)
+                s_m = iou_m + 1.2 * corr_m - 0.004 * abs(pitch)
+                if s > best[0]:
+                    best = (s, rot, flip, float(pitch))
+                if s_m > best[0]:
+                    best = (s_m, np.diag([-1.0, 1.0, 1.0]) @ rot, flip, float(pitch))
+    logger.info(
+        "orient pose-to-image score=%.3f flip=%s pitch=%.0f",
+        best[0],
+        best[2],
+        best[3],
+    )
     mesh = _apply_rot(mesh, best[1])
     vv = (v_s - center) @ best[1].T
     occ = _occupancy(vv, f_s, az=0, el=12, size=80)
@@ -449,6 +462,25 @@ def _pose_to_image(mesh: Any, image: Any) -> Any:
         logger.info("orient extra 180° — occupancy still inverted vs photo")
         mesh = _apply_rot(mesh, _euler(180.0, 0.0, 0.0))
     return mesh
+
+
+def _yaw_photo_to_front(mesh: Any, image: Any) -> Any:
+    """Turn the photo-matching face toward +Z so preview/Bambu see the front."""
+    from texture import _best_view, _image_arrays
+
+    _rgb, mask = _image_arrays(image)
+    verts = np.asarray(mesh.vertices, dtype=float)
+    faces = np.asarray(mesh.faces, dtype=int)
+    az, el, _mirror = _best_view(verts, faces, mask)
+    delta = 180.0 - float(az)
+    if delta > 180.0:
+        delta -= 360.0
+    if delta < -180.0:
+        delta += 360.0
+    if abs(delta) < 12.0:
+        return mesh
+    logger.info("orient yaw photo to +Z front az=%d Δ=%.0f el=%d", az, delta, el)
+    return _apply_rot(mesh, _euler(0.0, delta, 0.0))
 
 
 def _flip_if_head_down(mesh: Any) -> Any:
