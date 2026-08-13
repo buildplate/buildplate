@@ -2,7 +2,7 @@
 # Buildplate install — Node + Python worker setup.
 set -euo pipefail
 
-REPO_URL="${BUILDPLATE_REPO_URL:-https://github.com/jordan-homan/buildplate.git}"
+REPO_URL="${BUILDPLATE_REPO_URL:-https://github.com/buildplate/buildplate.git}"
 INSTALL_DIR="${BUILDPLATE_HOME:-$HOME/buildplate/src}"
 
 echo "→ Buildplate install"
@@ -45,7 +45,7 @@ cat <<EOF
       "command": "node",
       "args": ["$MCP_ENTRY"],
       "env": {
-        "BUILDPLATE_PREVIEW_URL": "http://127.0.0.1:3920"
+        "BUILDPLATE_PREVIEW_URL": "http://buildplate.localhost:3920"
       }
     }
   }

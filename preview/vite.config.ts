@@ -45,8 +45,9 @@ function serveOutDir(): Plugin {
 export default defineConfig({
   plugins: [react(), serveOutDir()],
   server: {
-    host: "127.0.0.1",
+    host: "localhost",
     port: 3920,
     strictPort: true,
+    allowedHosts: ["buildplate.localhost", "localhost"],
   },
 });

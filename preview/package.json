@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 127.0.0.1 --port 3920",
+    "dev": "vite --host localhost --port 3920",
     "build": "vite build",
-    "preview": "vite preview --host 127.0.0.1 --port 3920"
+    "preview": "vite preview --host localhost --port 3920"
   },
   "dependencies": {
     "@react-three/drei": "^9.114.0",
