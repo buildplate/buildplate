@@ -119,6 +119,8 @@ In-repo, agents can also read [`AGENTS.md`](./AGENTS.md).
 
 </details>
 
+---
+
 ### Option 2 — Install yourself
 
 ```bash
