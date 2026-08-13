@@ -128,6 +128,9 @@ In-repo, agents can also read [`AGENTS.md`](./AGENTS.md).
 
 ### Option 2 — Install yourself
 
+<details>
+<summary><strong>Show install steps</strong></summary>
+
 ```bash
 git clone https://github.com/buildplate/buildplate.git
 cd buildplate
@@ -196,6 +199,38 @@ command = "node"
 args = ["/ABS/PATH/buildplate/mcp/server.mjs"]
 env = { BUILDPLATE_PREVIEW_URL = "http://buildplate.localhost" }
 ```
+
+</details>
+
+## Usage
+
+Once the worker is up and MCP is connected, talk to your agent in plain language. **Mesh** is for characters, toys, and anything that should look like a photo. **CAD** is for hard-edged parts with real millimeters — boxes, cabinets, mounts, holes.
+
+Attach a photo when you want a look-alike mesh. Skip the photo for CAD and spell out sizes.
+
+### Mesh
+
+> Make me a mesh Charmander figurine from this photo, full body, standing.
+
+> Generate a mesh Grey Fox mask from Metal Gear Solid. Use a reference image.
+
+> Turn this photo of my cowboy hat into a 3D-printable mesh.
+
+> Make a toy-style Pikachu, full body, standing — mesh, quality.
+
+### CAD
+
+> Generate a CAD cabinet, 400 mm wide, 600 mm tall, 350 mm deep, two doors, one 20 mm shelf.
+
+> CAD a phone stand: 70 mm wide, 15° tilt, 4 mm walls.
+
+> Make a 40 × 30 × 12 mm mounting plate with M3 holes at the corners, CAD.
+
+> CAD a simple enclosure, 80 × 50 × 25 mm, 2 mm walls, snap-on lid.
+
+Printers, enclosures, and anything with holes/flats should be CAD — a photo of a Bambu will come out as a soft blob if you ask for mesh.
+
+Preview opens at [http://buildplate.localhost](http://buildplate.localhost). From there: **Export STL** or **Open in Bambu**.
 
 ## License
 
