@@ -50,6 +50,9 @@ def orient_mesh(mesh: Any, image: Any | None = None) -> Any:
         mesh = _wide_end_down(mesh)
     elif kind not in ("chunky", "pancake"):
         mesh = _feet_end_down(mesh)
+    if kind != "oblate":
+        mesh = _align_longest_to_up(mesh)
+        mesh = _keep_thin_axis_as_depth(mesh)
     return _sit_on_ground(mesh)
 
 
@@ -83,6 +86,26 @@ def _contact_span(mesh: Any, flip: bool = False) -> float:
     if len(bot) < 12:
         return 0.0
     return float(np.ptp(bot[:, 0]) * np.ptp(bot[:, 2]))
+
+
+def _align_longest_to_up(mesh: Any) -> Any:
+    """Stand the figure: the longest 3D axis is head-to-feet, not a lean in XY."""
+    verts = np.asarray(mesh.vertices, dtype=float)
+    if len(verts) < 32:
+        return mesh
+    center = verts.mean(axis=0)
+    try:
+        _, _, vh = np.linalg.svd(verts - center, full_matrices=False)
+    except Exception:
+        return mesh
+    axis = vh[0]
+    if float(axis[1]) < 0:
+        axis = -axis
+    tilt = float(np.degrees(np.arccos(np.clip(float(axis[1]), -1.0, 1.0))))
+    if tilt < 8.0:
+        return mesh
+    logger.info("orient align longest→Y tilt=%.1f°", tilt)
+    return _apply_rot(mesh, _rot_align(axis, np.array([0.0, 1.0, 0.0])))
 
 
 def _wide_end_down(mesh: Any) -> Any:
