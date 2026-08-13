@@ -2,6 +2,11 @@
 
 Local 3D for agents. Your machine compiles / reconstructs. The agent thinks (CAD vs mesh, photos, solids). Talks over **MCP** — Cursor, Claude, Codex, or anything that speaks stdio MCP.
 
+<p align="center">
+  <img src="docs/charmander.png" alt="Charmander generated in Buildplate, standing on the Bambu build plate" width="560">
+</p>
+<p align="center"><sub>Photo → mesh → Open in Bambu</sub></p>
+
 | | |
 |--|--|
 | **CAD** | Agent-authored trimesh / OpenSCAD / CadQuery → STL |
