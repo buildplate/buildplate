@@ -362,7 +362,7 @@ def _save_mesh_still(mesh, path: Path, size: int = 512) -> None:
     ax.set_xlim(c[0] - span, c[0] + span)
     ax.set_ylim(c[2] - span, c[2] + span)
     ax.set_zlim(c[1] - span, c[1] + span)
-    ax.view_init(elev=20, azim=-60)
+    ax.view_init(elev=12, azim=-90)
     ax.set_axis_off()
     fig.patch.set_facecolor("#12171c")
     plt.tight_layout(pad=0)

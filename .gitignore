@@ -25,3 +25,4 @@ out/
 *.glb
 !preview/public/.gitkeep
 preview-*.png
+worker/tests/**/__pycache__/

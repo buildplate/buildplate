@@ -18,41 +18,50 @@ def postprocess_mesh(mesh: Any, *, strip_relief: bool = True) -> Any:
     if strip_relief:
         mesh = _strip_relief_backing(mesh)
     mesh = _remove_large_planar_facets(mesh)
-    mesh = _pca_upright(mesh)
-    if _shape_kind(mesh) not in ("oblate", "chunky"):
-        mesh = _trim_horizontal_brims(mesh)
+    mesh = _pca_oblate_only(mesh)
     mesh = _keep_best_component(mesh)
     return mesh
 
 
 def orient_mesh(mesh: Any, image: Any | None = None) -> Any:
-    """Feet on the ground, face matching the reference photo when we have one."""
+    """Feet on the ground, face matching the reference photo when we have one.
+
+    A photo's up is the source of truth for figurines. Longest-axis-up is only
+    used when there is no photo (it stands tails on end).
+    """
     if mesh is None:
         return mesh
     kind = _shape_kind(mesh)
-    if kind not in ("oblate", "chunky"):
+    if kind == "oblate":
+        mesh = _pca_oblate_only(mesh)
+        mesh = _wide_end_down(mesh)
+        if image is not None:
+            mesh = _yaw_photo_to_front(mesh, image)
+        return _sit_on_ground(mesh)
+
+    if kind != "chunky":
         mesh = _keep_thin_axis_as_depth(mesh)
     if image is not None:
-        mesh = _pose_to_image(mesh, image)
+        # Photo up first (roll). Yaw/pitch after that — but not on pancakes;
+        # pose-to-image lays relief cards on their side.
         mesh = _upright_silhouette(mesh, image)
-        mesh = _yaw_photo_to_front(mesh, image)
-        if kind not in ("oblate", "chunky", "pancake"):
-            mesh = _pitch_off_spike(mesh, image)
+        if kind != "pancake":
+            mesh = _pose_to_image(mesh, image, pitch_span=45)
+            mesh = _upright_silhouette(mesh, image)
     else:
         planted = _plant_feet_and_head(mesh)
         if planted is not None:
             mesh = planted
         else:
             mesh = _flip_if_head_down(mesh)
-        if kind not in ("oblate", "chunky"):
+        if kind != "chunky":
             mesh = _keep_thin_axis_as_depth(mesh)
-    if kind == "oblate":
-        mesh = _wide_end_down(mesh)
-    elif kind not in ("chunky", "pancake"):
-        mesh = _feet_end_down(mesh)
-    if kind != "oblate":
-        mesh = _align_longest_to_up(mesh)
-        mesh = _keep_thin_axis_as_depth(mesh)
+        if kind != "pancake":
+            mesh = _feet_end_down(mesh)
+            mesh = _align_longest_to_up(mesh)
+            mesh = _keep_thin_axis_as_depth(mesh)
+    if kind not in ("chunky", "pancake"):
+        mesh = _trim_horizontal_brims(mesh)
     return _sit_on_ground(mesh)
 
 
@@ -236,8 +245,8 @@ def _remove_large_planar_facets(mesh: Any) -> Any:
         return mesh
 
 
-def _pca_upright(mesh: Any) -> Any:
-    """Figurines: longest → Y. Hats/plates: shortest → Y so they sit on the large face."""
+def _pca_oblate_only(mesh: Any) -> Any:
+    """Hats/plates: shortest → Y so they sit on the large face. Leave figurines alone."""
     verts = np.asarray(mesh.vertices, dtype=float)
     center = verts.mean(axis=0)
     centered = verts - center
@@ -250,22 +259,7 @@ def _pca_upright(mesh: Any) -> Any:
     r_thin = float(s[2] / (s[0] + 1e-8))
     if r_mid > 0.85 and 0.22 <= r_thin < 0.70:
         return _pca_oblate_sit(mesh, vh)
-    if r_thin > 0.60:
-        logger.info("pca skip isotropic r_thin=%.3f", r_thin)
-        return mesh
-
-    x_axis = vh[1]
-    y_axis = vh[0]
-    z_axis = vh[2]
-    if np.dot(np.cross(x_axis, y_axis), z_axis) < 0:
-        z_axis = -z_axis
-    rot = np.eye(4)
-    rot[:3, :3] = np.stack([x_axis, y_axis, z_axis], axis=0)
-
-    out = mesh.copy()
-    out.apply_transform(rot)
-    logger.info("pca upright applied")
-    return out
+    return mesh
 
 
 def _pca_oblate_sit(mesh: Any, vh: np.ndarray) -> Any:
@@ -442,7 +436,7 @@ def _plant_feet_and_head(mesh: Any) -> Any | None:
     return out
 
 
-def _pose_to_image(mesh: Any, image: Any) -> Any:
+def _pose_to_image(mesh: Any, image: Any, *, pitch_span: int = 30) -> Any:
     """Yaw + pitch so the photo's up/silhouette match the mesh."""
     from texture import _image_arrays, _iou, _occupancy, _preview_mesh, _resize_mask
 
@@ -456,7 +450,7 @@ def _pose_to_image(mesh: Any, image: Any) -> Any:
     best = (-1e9, np.eye(3), False, 0.0)
     for flip in (False, True):
         base = _euler(180.0, 0.0, 0.0) if flip else np.eye(3)
-        for pitch in range(-30, 31, 15):
+        for pitch in range(-int(pitch_span), int(pitch_span) + 1, 15):
             for yaw in range(0, 360, 15):
                 rot = _euler(float(pitch), float(yaw), 0.0) @ base
                 vv = (v_s - center) @ rot.T
@@ -514,6 +508,12 @@ def _upright_silhouette(mesh: Any, image: Any) -> Any:
     _rgb, mask = _image_arrays(image)
     target = _resize_mask(mask, 80)
     target_prof = target.mean(axis=1)
+    ty, tx = np.nonzero(target)
+    photo_tall = (
+        (float(ty.max() - ty.min()) + 1.0) / (float(tx.max() - tx.min()) + 1.0)
+        if len(ty) and len(tx)
+        else 1.0
+    )
     verts = np.asarray(mesh.vertices, dtype=float)
     faces = np.asarray(mesh.faces, dtype=int)
     v_s, f_s = _preview_mesh(verts, faces, 2500)
@@ -525,8 +525,13 @@ def _upright_silhouette(mesh: Any, image: Any) -> Any:
         occ = _occupancy(vv, f_s, az=0, el=12, size=80)
         iou = _iou(occ, target)
         corr = _corr(occ.mean(axis=1), target_prof)
-        tall = float(np.ptp(vv[:, 1]) / (np.ptp(vv[:, 0]) + 1e-8))
-        s = iou + 1.6 * corr + 0.2 * min(tall, 2.5)
+        r, c = np.nonzero(occ)
+        tall = (
+            (float(r.max() - r.min()) + 1.0) / (float(c.max() - c.min()) + 1.0)
+            if len(r) and len(c)
+            else 1.0
+        )
+        s = iou + 1.6 * corr - 0.5 * abs(tall - photo_tall)
         if s > best[0]:
             best = (s, rot, roll)
     logger.info("orient upright silhouette roll=%d score=%.3f", best[2], best[0])
@@ -577,58 +582,6 @@ def _feet_end_down(mesh: Any) -> Any:
         logger.info("orient feet-end-down (ground blobs=%d sky blobs=%d)", bot, top)
         return _apply_rot(mesh, _euler(180.0, 0.0, 0.0))
     return mesh
-
-
-def _bottom_aniso(mesh: Any) -> float:
-    v = np.asarray(mesh.vertices, dtype=float)
-    ymin = float(v[:, 1].min())
-    span = float(np.ptp(v[:, 1])) + 1e-8
-    bot = v[v[:, 1] <= ymin + 0.12 * span]
-    if len(bot) < 16:
-        return 1e9
-    c = bot.mean(axis=0)
-    try:
-        _, s, _ = np.linalg.svd(bot - c, full_matrices=False)
-    except Exception:
-        return 1e9
-    return float(s[0] / (s[-1] + 1e-8))
-
-
-def _pitch_off_spike(mesh: Any, image: Any) -> Any:
-    """If the mesh is sitting on a tail/spike, pitch until a compact base is down."""
-    from texture import _image_arrays, _occupancy, _preview_mesh, _resize_mask
-
-    base_aniso = _bottom_aniso(mesh)
-    if base_aniso < 5.5:
-        return mesh
-
-    _rgb, mask = _image_arrays(image)
-    target = _resize_mask(mask, 80)
-    target_prof = target.mean(axis=1)
-    verts = np.asarray(mesh.vertices, dtype=float)
-    faces = np.asarray(mesh.faces, dtype=int)
-    v_s, f_s = _preview_mesh(verts, faces, 2500)
-    center = v_s.mean(axis=0)
-    best = (-1e9, np.eye(3), base_aniso)
-    for pitch in range(-75, 80, 15):
-        rot = _euler(float(pitch), 0.0, 0.0)
-        cand = _apply_rot(mesh, rot)
-        aniso = _bottom_aniso(cand)
-        vv = (v_s - center) @ rot.T
-        occ = _occupancy(vv, f_s, az=0, el=12, size=80)
-        corr = _corr(occ.mean(axis=1), target_prof)
-        s = -0.08 * aniso + corr
-        if s > best[0]:
-            best = (s, rot, aniso)
-    if best[2] >= base_aniso * 0.85:
-        return mesh
-    logger.info(
-        "orient pitch-off-spike aniso %.1f → %.1f score=%.3f",
-        base_aniso,
-        best[2],
-        best[0],
-    )
-    return _apply_rot(mesh, best[1])
 
 
 def _corr(a: np.ndarray, b: np.ndarray) -> float:
