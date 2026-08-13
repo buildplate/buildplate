@@ -19,7 +19,8 @@ def postprocess_mesh(mesh: Any, *, strip_relief: bool = True) -> Any:
         mesh = _strip_relief_backing(mesh)
     mesh = _remove_large_planar_facets(mesh)
     mesh = _pca_upright(mesh)
-    mesh = _trim_horizontal_brims(mesh)
+    if _shape_kind(mesh) != "oblate":
+        mesh = _trim_horizontal_brims(mesh)
     mesh = _keep_best_component(mesh)
     return mesh
 
@@ -28,19 +29,66 @@ def orient_mesh(mesh: Any, image: Any | None = None) -> Any:
     """Feet on the ground, face matching the reference photo when we have one."""
     if mesh is None:
         return mesh
-    mesh = _keep_thin_axis_as_depth(mesh)
+    oblate = _shape_kind(mesh) == "oblate"
+    if not oblate:
+        mesh = _keep_thin_axis_as_depth(mesh)
     if image is not None:
         mesh = _pose_to_image(mesh, image)
-        mesh = _pitch_off_spike(mesh, image)
+        if not oblate:
+            mesh = _pitch_off_spike(mesh, image)
     else:
         planted = _plant_feet_and_head(mesh)
         if planted is not None:
             mesh = planted
         else:
             mesh = _flip_if_head_down(mesh)
-        mesh = _keep_thin_axis_as_depth(mesh)
-    mesh = _feet_end_down(mesh)
+        if not oblate:
+            mesh = _keep_thin_axis_as_depth(mesh)
+    if oblate:
+        mesh = _wide_end_down(mesh)
+    else:
+        mesh = _feet_end_down(mesh)
     return _sit_on_ground(mesh)
+
+
+def _shape_kind(mesh: Any) -> str:
+    """pancake = relief card; oblate = hat/plate/bowl; upright = figurine."""
+    verts = np.asarray(mesh.vertices, dtype=float)
+    if len(verts) < 32:
+        return "upright"
+    try:
+        _, s, _ = np.linalg.svd(verts - verts.mean(axis=0), full_matrices=False)
+    except Exception:
+        return "upright"
+    r_mid = float(s[1] / (s[0] + 1e-8))
+    r_thin = float(s[2] / (s[0] + 1e-8))
+    if r_thin < 0.22:
+        return "pancake"
+    if r_mid > 0.85 and r_thin < 0.70:
+        return "oblate"
+    return "upright"
+
+
+def _contact_span(mesh: Any, flip: bool = False) -> float:
+    v = np.asarray(mesh.vertices, dtype=float).copy()
+    if flip:
+        v[:, 1] *= -1
+    ymin = float(v[:, 1].min())
+    span = float(np.ptp(v[:, 1])) + 1e-8
+    bot = v[v[:, 1] <= ymin + 0.12 * span]
+    if len(bot) < 12:
+        return 0.0
+    return float(np.ptp(bot[:, 0]) * np.ptp(bot[:, 2]))
+
+
+def _wide_end_down(mesh: Any) -> Any:
+    """Hats/plates: the wide face is the base, not the crown."""
+    upright = _contact_span(mesh, False)
+    flipped = _contact_span(mesh, True)
+    if flipped > upright * 1.15:
+        logger.info("orient wide-end-down contact upright=%.4f flipped=%.4f", upright, flipped)
+        return _apply_rot(mesh, _euler(180.0, 0.0, 0.0))
+    return mesh
 
 
 def _keep_thin_axis_as_depth(mesh: Any) -> Any:
@@ -162,14 +210,19 @@ def _remove_large_planar_facets(mesh: Any) -> Any:
 
 
 def _pca_upright(mesh: Any) -> Any:
-    """Align most variance → Y, least → Z."""
+    """Figurines: longest → Y. Hats/plates: shortest → Y so they sit on the large face."""
     verts = np.asarray(mesh.vertices, dtype=float)
     center = verts.mean(axis=0)
     centered = verts - center
     try:
-        _, _, vh = np.linalg.svd(centered, full_matrices=False)
+        _, s, vh = np.linalg.svd(centered, full_matrices=False)
     except Exception:
         return mesh
+
+    r_mid = float(s[1] / (s[0] + 1e-8))
+    r_thin = float(s[2] / (s[0] + 1e-8))
+    if r_mid > 0.85 and 0.22 <= r_thin < 0.70:
+        return _pca_oblate_sit(mesh, vh)
 
     x_axis = vh[1]
     y_axis = vh[0]
@@ -183,6 +236,34 @@ def _pca_upright(mesh: Any) -> Any:
     out.apply_transform(rot)
     logger.info("pca upright applied")
     return out
+
+
+def _pca_oblate_sit(mesh: Any, vh: np.ndarray) -> Any:
+    """Map the short axis to Y and keep the wider end on the ground."""
+    up = vh[2]
+    best = None
+    best_score = -1.0
+    for sgn in (1.0, -1.0):
+        y_axis = up * sgn
+        x_axis = vh[1]
+        z_axis = np.cross(x_axis, y_axis)
+        if np.linalg.norm(z_axis) < 1e-8:
+            x_axis = vh[0]
+            z_axis = np.cross(x_axis, y_axis)
+        z_axis = z_axis / (np.linalg.norm(z_axis) + 1e-12)
+        x_axis = np.cross(y_axis, z_axis)
+        x_axis = x_axis / (np.linalg.norm(x_axis) + 1e-12)
+        if np.dot(np.cross(x_axis, y_axis), z_axis) < 0:
+            z_axis = -z_axis
+        rot = np.eye(4)
+        rot[:3, :3] = np.stack([x_axis, y_axis, z_axis], axis=0)
+        cand = mesh.copy()
+        cand.apply_transform(rot)
+        score = _contact_span(cand)
+        if score > best_score:
+            best, best_score = cand, score
+    logger.info("pca upright oblate short→up contact=%.4f", best_score)
+    return best if best is not None else mesh
 
 
 def _euler(pitch_deg: float, yaw_deg: float, roll_deg: float) -> np.ndarray:
