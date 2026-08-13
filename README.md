@@ -202,6 +202,8 @@ env = { BUILDPLATE_PREVIEW_URL = "http://buildplate.localhost" }
 
 </details>
 
+---
+
 ## Usage
 
 Once the worker is up and MCP is connected, talk to your agent in plain language. **Mesh** is for characters, toys, and anything that should look like a photo. **CAD** is for hard-edged parts with real millimeters — boxes, cabinets, mounts, holes.
@@ -227,8 +229,6 @@ Attach a photo when you want a look-alike mesh. Skip the photo for CAD and spell
 > Make a 40 × 30 × 12 mm mounting plate with M3 holes at the corners, CAD.
 
 > CAD a simple enclosure, 80 × 50 × 25 mm, 2 mm walls, snap-on lid.
-
-Printers, enclosures, and anything with holes/flats should be CAD — a photo of a Bambu will come out as a soft blob if you ask for mesh.
 
 Preview opens at [http://buildplate.localhost](http://buildplate.localhost). From there: **Export STL** or **Open in Bambu**.
 
