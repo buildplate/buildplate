@@ -9,10 +9,9 @@ import { createRequire } from "node:module";
 import { existsSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
-import { PKG_ROOT, PREVIEW_SRC, workerEnv } from "./paths.mjs";
+import { PKG_ROOT, PREVIEW_SRC, workerEnv, getPreviewUrl, brandedHostResolves, PREVIEW_PORT } from "./paths.mjs";
 
 const PROXY = path.join(PKG_ROOT, "scripts/preview-proxy.mjs");
-const PREVIEW_PORT = Number(process.env.BUILDPLATE_PREVIEW_PORT || 3920);
 
 function resolveVite() {
   // node + vite.js — Windows has no executable .bin/vite (needs vite.cmd / shell).
@@ -59,8 +58,14 @@ function appleQuote(value) {
 
 async function ensurePort80() {
   if (process.env.BUILDPLATE_PREVIEW_BIND80 === "0") return;
+  // Windows does not resolve *.localhost and cannot bind :80 without elevation.
+  // Skip the proxy; MCP/Vite use http://localhost:3920 (or branded:3920 if hosts exists).
+  if (process.platform === "win32" && process.env.BUILDPLATE_PREVIEW_BIND80 !== "1") {
+    return;
+  }
+  if (!brandedHostResolves()) return;
+
   if (await port80Up()) {
-    console.error("[buildplate-preview] http://buildplate.localhost");
     return;
   }
 
@@ -73,7 +78,6 @@ async function ensurePort80() {
   ]);
   if (outcome === "running" || outcome === 0) {
     if (await waitPort(80, "127.0.0.1", 3000) || await waitPort(80, "::1", 1000)) {
-      console.error("[buildplate-preview] http://buildplate.localhost");
       return;
     }
   }
@@ -94,8 +98,7 @@ async function ensurePort80() {
     );
     if (r.status !== 0) {
       console.error(
-        "Port 80 not granted. Preview is still at http://buildplate.localhost:3920 — " +
-          "set BUILDPLATE_PREVIEW_URL to that, or re-run and allow the prompt.",
+        `Port 80 not granted. Preview is still at http://localhost:${PREVIEW_PORT}.`,
       );
       return;
     }
@@ -107,23 +110,17 @@ async function ensurePort80() {
     });
     if (r.status !== 0) {
       console.error(
-        "Could not bind port 80. Allow sudo for the preview proxy, or use " +
-          "http://buildplate.localhost:3920",
+        `Could not bind port 80. Allow sudo for the preview proxy, or use http://localhost:${PREVIEW_PORT}`,
       );
       return;
     }
   } else {
-    console.error(
-      "Port 80 needs elevation on this OS. Using http://buildplate.localhost:3920",
-    );
     return;
   }
 
   if (await waitPort(80, "127.0.0.1", 8000) || await waitPort(80, "::1", 2000)) {
-    console.error("[buildplate-preview] http://buildplate.localhost");
     return;
   }
-  console.error("[buildplate-preview] port 80 did not come up; use :3920 as fallback");
 }
 
 // Use node + vite.js so Windows does not need the .cmd shim in .bin
@@ -143,3 +140,4 @@ if (!(await waitPort(PREVIEW_PORT, "localhost"))) {
   process.exit(1);
 }
 await ensurePort80();
+console.error(`[buildplate-preview] ${getPreviewUrl()}`);

@@ -144,6 +144,8 @@ npx -y github:buildplate/buildplate start
 
 First `start` may ask for your Mac password so preview can bind port 80 on localhost only (not the network). Allow it once.
 
+Windows often does not resolve `*.localhost`. Preview links then use **http://localhost:3920** automatically (the GLB was always fine). Optional: add `127.0.0.1 buildplate.localhost` to `C:\Windows\System32\drivers\etc\hosts` if you want the branded host.
+
 Then add MCP — same snippet for every client, no clone path:
 
 ```json

@@ -4,6 +4,7 @@ import fs from "node:fs";
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { slicerApi } from "./slicers-server";
+import { getPreviewUrl, PREVIEW_PORT } from "../scripts/paths.mjs";
 
 const OUT_DIR =
   process.env.BUILDPLATE_OUT_DIR?.trim() ||
@@ -52,17 +53,28 @@ function serveOutDir(): Plugin {
   };
 }
 
+const previewOrigin = getPreviewUrl();
+let hmrHost = "localhost";
+let hmrClientPort = PREVIEW_PORT;
+try {
+  const u = new URL(previewOrigin);
+  hmrHost = u.hostname;
+  hmrClientPort = u.port ? Number(u.port) : u.protocol === "https:" ? 443 : 80;
+} catch {
+  // keep localhost:3920
+}
+
 export default defineConfig({
   plugins: [react(), serveOutDir(), slicerApi()],
   server: {
     host: "localhost",
-    port: 3920,
+    port: PREVIEW_PORT,
     strictPort: true,
     allowedHosts: ["buildplate.localhost", "localhost"],
-    origin: "http://buildplate.localhost",
+    origin: previewOrigin,
     hmr: {
-      host: "buildplate.localhost",
-      clientPort: 80,
+      host: hmrHost,
+      clientPort: hmrClientPort,
     },
   },
 });

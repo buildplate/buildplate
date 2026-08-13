@@ -26,7 +26,7 @@ import {
   ensureWorker,
   fetchJobPreview,
 } from "./worker-client.mjs";
-import { OUT_DIR, REFS_DIR, PREVIEW_URL } from "../scripts/paths.mjs";
+import { OUT_DIR, REFS_DIR, getPreviewUrl } from "../scripts/paths.mjs";
 
 const AGENT_PLAYBOOK = `Buildplate — YOU (the agent) do the thinking; the worker only compiles/reconstructs.
 
@@ -93,7 +93,7 @@ function meshHttpPath(absPath) {
   const root = path.resolve(OUT_DIR);
   if (resolved === root || resolved.startsWith(root + path.sep)) {
     const rel = path.relative(root, resolved).split(path.sep).join("/");
-    return `${PREVIEW_URL}/out/${rel}`;
+    return `${getPreviewUrl()}/out/${rel}`;
   }
   return pathToFileURL(resolved).href;
 }
@@ -140,7 +140,7 @@ function previewPageUrl(filePath, kind) {
     src: meshHttpPath(filePath),
   });
   if (kind === "cad" || kind === "mesh") q.set("kind", kind);
-  return `${PREVIEW_URL}/?${q.toString()}`;
+  return `${getPreviewUrl()}/?${q.toString()}`;
 }
 
 async function generatedKindForPath(filePath) {
@@ -401,7 +401,7 @@ server.registerTool(
               mcp: "ok",
               outDir: OUT_DIR,
               refsDir: REFS_DIR,
-              previewUrl: PREVIEW_URL,
+              previewUrl: getPreviewUrl(),
               workerConfigured: workerConfigured(),
               worker,
               tip: "generate for a new object. refine({job_id, prompt}) for color/material follow-ups on the last mesh. Incomplete generate returns a retry recipe.",
