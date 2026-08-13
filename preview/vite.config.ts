@@ -34,9 +34,18 @@ function serveOutDir(): Plugin {
             ? "model/gltf-binary"
             : ext === ".stl"
               ? "model/stl"
-              : "application/octet-stream";
+              : ext === ".json"
+                ? "application/json"
+                : ext === ".png"
+                  ? "image/png"
+                  : "application/octet-stream";
         res.setHeader("Content-Type", type);
         res.setHeader("Cache-Control", "no-store");
+        if (req.method === "HEAD") {
+          res.setHeader("Content-Length", String(fs.statSync(file).size));
+          res.end();
+          return;
+        }
         fs.createReadStream(file).pipe(res);
       });
     },

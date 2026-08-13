@@ -136,11 +136,39 @@ async function resolveJobPaths(jobId) {
   };
 }
 
-function previewPageUrl(filePath) {
+function generatedKind(backend, meta) {
+  const g = meta?.generated;
+  if (g === "cad" || g === "mesh") return g;
+  if (backend === "cad" || meta?.mode === "cad" || meta?.backend === "cad") return "cad";
+  if (backend || meta?.mode || meta?.backend) return "mesh";
+  return null;
+}
+
+function previewPageUrl(filePath, kind) {
   const q = new URLSearchParams({
     src: meshHttpPath(filePath),
   });
+  if (kind === "cad" || kind === "mesh") q.set("kind", kind);
   return `${PREVIEW_URL}/?${q.toString()}`;
+}
+
+async function generatedKindForPath(filePath) {
+  const dir = path.dirname(filePath);
+  try {
+    const meta = JSON.parse(await readFile(path.join(dir, "meta.json"), "utf8"));
+    const kind = generatedKind(meta.backend, meta);
+    if (kind) return kind;
+  } catch {
+    // infer from sibling files
+  }
+  const names = await readdir(dir).catch(() => []);
+  if (names.some((n) => n === "model_trimesh.py" || n === "model.scad" || n === "model_cq.py")) {
+    return "cad";
+  }
+  if (names.some((n) => n === "albedo.png" || n === "composited.png" || n === "model.glb")) {
+    return "mesh";
+  }
+  return null;
 }
 
 function extFromMimeOrName(name, mime) {
@@ -277,6 +305,7 @@ async function finishGenerateJob({ result, prompt, imagePath, open_preview, back
     backend: result.backend || backend,
     engine: result.engine || null,
     parentJobId: result.parentJobId || null,
+    generated: backend === "cad" ? "cad" : "mesh",
     mode:
       backend === "cad"
         ? "cad"
@@ -300,7 +329,7 @@ async function finishGenerateJob({ result, prompt, imagePath, open_preview, back
 
   let previewUrl = null;
   if (open_preview !== false) {
-    previewUrl = previewPageUrl(meshPath);
+    previewUrl = previewPageUrl(meshPath, meta.generated);
     try {
       await open(previewUrl);
     } catch {
@@ -772,7 +801,7 @@ server.registerTool(
       };
     }
 
-    const url = previewPageUrl(glbPath);
+    const url = previewPageUrl(glbPath, await generatedKindForPath(glbPath));
     return {
       content: [
         {
@@ -814,7 +843,7 @@ server.registerTool(
       };
     }
 
-    const url = previewPageUrl(file);
+    const url = previewPageUrl(file, await generatedKindForPath(file));
     try {
       await open(url);
     } catch {

@@ -53,13 +53,41 @@ body {
   gap: 0.15rem;
 }
 
+.brand-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .brand strong {
   font-size: 1.05rem;
   letter-spacing: 0.02em;
   font-weight: 600;
 }
 
-.brand span {
+.kind-tag {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  padding: 0.14rem 0.42rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+}
+
+.kind-tag.cad {
+  color: #d5dee6;
+  background: #1c242c;
+  border-color: #4a5663;
+}
+
+.kind-tag.mesh {
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-color: transparent;
+}
+
+.brand-path {
   font-family: "IBM Plex Mono", ui-monospace, monospace;
   font-size: 0.72rem;
   color: var(--muted);

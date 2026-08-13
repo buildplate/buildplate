@@ -11,6 +11,7 @@ HTTP contract (localhost):
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import threading
@@ -381,6 +382,27 @@ def generate(
         STATE["jobs_done"] += 1
         STATE["last_error"] = None
 
+        generated = "cad" if mode == "cad" else "mesh"
+        (out_dir / "meta.json").write_text(
+            json.dumps(
+                {
+                    "jobId": job_id,
+                    "generated": generated,
+                    "backend": str(result.meta.get("backend", mode)),
+                    "engine": result.meta.get("engine"),
+                    "mode": (
+                        "cad"
+                        if mode == "cad"
+                        else "image_to_3d"
+                        if body.image
+                        else "text_to_3d"
+                    ),
+                },
+                indent=2,
+            )
+            + "\n"
+        )
+
         media = "model/stl" if result.kind == "stl" else "model/gltf-binary"
         preview = out_dir / "preview.png"
         headers = {
@@ -449,6 +471,20 @@ def refine(
         )
         STATE["jobs_done"] += 1
         STATE["last_error"] = None
+        (out_dir / "meta.json").write_text(
+            json.dumps(
+                {
+                    "jobId": job_id,
+                    "generated": "mesh",
+                    "backend": "refine",
+                    "engine": "refine",
+                    "mode": "refine",
+                    "parentJobId": src.name,
+                },
+                indent=2,
+            )
+            + "\n"
+        )
         preview = out_dir / "preview.png"
         headers = {
             "X-Job-Id": job_id,
