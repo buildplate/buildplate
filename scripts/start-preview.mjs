@@ -5,15 +5,25 @@
  * admin prompt; after that the proxy stays up on localhost only.
  */
 import { spawn, spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
+import { existsSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { PKG_ROOT, PREVIEW_SRC, workerEnv } from "./paths.mjs";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.resolve(__dirname, "..");
-const PROXY = path.join(ROOT, "scripts/preview-proxy.mjs");
-const VITE = path.join(ROOT, "preview", "node_modules", ".bin", "vite");
+const PROXY = path.join(PKG_ROOT, "scripts/preview-proxy.mjs");
 const PREVIEW_PORT = Number(process.env.BUILDPLATE_PREVIEW_PORT || 3920);
+
+function resolveVite() {
+  const require = createRequire(import.meta.url);
+  try {
+    return path.join(path.dirname(require.resolve("vite/package.json")), "bin", "vite.js");
+  } catch {
+    const nested = path.join(PREVIEW_SRC, "node_modules", "vite", "bin", "vite.js");
+    if (existsSync(nested)) return nested;
+    throw new Error("vite not found — reinstall the buildplate package (npm i / npx -y buildplate)");
+  }
+}
 
 function portOpen(port, host) {
   return new Promise((resolve) => {
@@ -116,12 +126,12 @@ async function ensurePort80() {
 }
 
 const vite = spawn(
-  VITE,
-  ["--host", "localhost", "--port", String(PREVIEW_PORT)],
+  process.execPath,
+  [resolveVite(), "--host", "localhost", "--port", String(PREVIEW_PORT)],
   {
-    cwd: path.join(ROOT, "preview"),
+    cwd: PREVIEW_SRC,
     stdio: "inherit",
-    env: process.env,
+    env: { ...process.env, ...workerEnv() },
   },
 );
 vite.on("exit", (code) => process.exit(code ?? 1));

@@ -227,7 +227,7 @@ def _compile_openscad(source: str, stl_path: Path, out_dir: Path) -> None:
 def _compile_cadquery(source: str, stl_path: Path, out_dir: Path) -> None:
     if not cadquery_available():
         raise RuntimeError(
-            "CadQuery not installed. Run: pip install cadquery  (in worker/.venv) "
+            "CadQuery not installed. Run: ~/buildplate/venv/bin/pip install cadquery "
             "or use engine=trimesh / openscad."
         )
     import cadquery as cq

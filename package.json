@@ -1,31 +1,80 @@
 {
   "name": "buildplate",
-  "version": "0.4.0",
-  "private": true,
+  "version": "0.5.0",
+  "private": false,
   "type": "module",
   "description": "Local-first mesh+CAD MCP for agents — Hunyuan/TripoSR and agent-authored CSG on your Mac or PC",
-  "bin": {
-    "buildplate": "./mcp/server.mjs"
+  "license": "MIT",
+  "author": "Buildplate",
+  "homepage": "https://github.com/buildplate/buildplate",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/buildplate/buildplate.git"
   },
+  "bugs": {
+    "url": "https://github.com/buildplate/buildplate/issues"
+  },
+  "keywords": [
+    "mcp",
+    "3d",
+    "cad",
+    "mesh",
+    "stl",
+    "cursor",
+    "claude"
+  ],
+  "bin": {
+    "buildplate": "./cli.mjs"
+  },
+  "main": "./cli.mjs",
+  "files": [
+    "cli.mjs",
+    "mcp",
+    "scripts",
+    "worker/*.py",
+    "worker/requirements.txt",
+    "worker/README.md",
+    "preview/index.html",
+    "preview/package.json",
+    "preview/tsconfig.json",
+    "preview/vite.config.ts",
+    "preview/slicers-server.ts",
+    "preview/src",
+    "AGENTS.md",
+    "docs/charmander.png"
+  ],
   "scripts": {
-    "setup": "node scripts/setup-worker.mjs",
-    "postinstall": "npm install --prefix preview --ignore-scripts",
-    "worker": "node scripts/start-worker.mjs",
-    "mcp": "node mcp/server.mjs",
-    "preview": "node scripts/start-preview.mjs",
+    "setup": "node cli.mjs setup",
+    "worker": "node cli.mjs worker",
+    "mcp": "node cli.mjs mcp",
+    "preview": "node cli.mjs preview",
     "preview:build": "npm run build --prefix preview",
-    "start": "concurrently -n worker,preview -c magenta,cyan \"npm:worker\" \"npm:preview\"",
-    "dev": "npm start"
+    "start": "node cli.mjs start",
+    "dev": "node cli.mjs start"
   },
   "engines": {
     "node": ">=20"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
+    "@react-three/drei": "^9.114.0",
+    "@react-three/fiber": "^8.17.10",
+    "@vitejs/plugin-react": "^4.3.2",
     "open": "^10.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "three": "^0.169.0",
+    "vite": "^5.4.9",
     "zod": "^3.24.2"
   },
   "devDependencies": {
-    "concurrently": "^9.0.1"
+    "@types/node": "^26.2.0",
+    "@types/react": "^18.3.11",
+    "@types/react-dom": "^18.3.1",
+    "@types/three": "^0.169.0",
+    "typescript": "^5.6.3"
   }
 }

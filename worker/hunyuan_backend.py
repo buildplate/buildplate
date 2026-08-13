@@ -11,13 +11,14 @@ from pathlib import Path
 from PIL import Image
 
 from device import DeviceInfo, pick_device
+from dirs import vendor_dir
 from mesh_ops import postprocess_mesh
 from preprocess import composite_white, remove_bg
 from remesh import DEFAULT_TARGET_FACES
 
 logger = logging.getLogger("buildplate-worker")
 
-_VENDOR = Path(__file__).resolve().parent / "vendor" / "Hunyuan3D-2"
+_VENDOR = vendor_dir() / "Hunyuan3D-2"
 
 
 def hunyuan_available() -> bool:
@@ -47,7 +48,7 @@ class HunyuanBackend:
             return
         if not hunyuan_available():
             raise RuntimeError(
-                "Hunyuan3D-2 vendor missing. Run: npm run setup"
+                "Hunyuan3D-2 vendor missing. Run: npx buildplate setup"
             )
         vendor = str(_VENDOR)
         if vendor not in sys.path:

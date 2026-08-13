@@ -15,7 +15,6 @@ import { z } from "zod";
 import { mkdir, writeFile, readFile, access, copyFile, readdir, stat } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import path from "node:path";
-import os from "node:os";
 import { createHash, randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import open from "open";
@@ -27,15 +26,7 @@ import {
   ensureWorker,
   fetchJobPreview,
 } from "./worker-client.mjs";
-
-const OUT_DIR = process.env.BUILDPLATE_OUT_DIR?.trim()
-  || path.join(os.homedir(), "buildplate", "out");
-const REFS_DIR = process.env.BUILDPLATE_REFS_DIR?.trim()
-  || path.join(os.homedir(), "buildplate", "refs");
-const PREVIEW_URL = (process.env.BUILDPLATE_PREVIEW_URL || "http://buildplate.localhost").replace(
-  /\/$/,
-  "",
-);
+import { OUT_DIR, REFS_DIR, PREVIEW_URL } from "../scripts/paths.mjs";
 
 const AGENT_PLAYBOOK = `Buildplate — YOU (the agent) do the thinking; the worker only compiles/reconstructs.
 

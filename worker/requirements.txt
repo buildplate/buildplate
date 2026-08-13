@@ -1,5 +1,5 @@
 # Buildplate worker — multi-OS (macOS Metal / NVIDIA CUDA / CPU)
-# TripoSR is cloned into worker/vendor/TripoSR by npm run setup (not pip).
+# TripoSR is cloned into ~/buildplate/vendor/TripoSR by `npx buildplate setup` (not pip).
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
 pydantic>=2.0

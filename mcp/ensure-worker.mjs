@@ -1,20 +1,16 @@
 /**
  * Ensure the local Buildplate worker is up (spawn if needed).
- * End users should not configure Funnel URLs — this is always localhost.
+ * Always targets localhost unless BUILDPLATE_WORKER_URL is overridden.
  */
 
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.resolve(__dirname, "..");
-const WORKER_DIR = path.join(ROOT, "worker");
-const VENV_PY =
-  process.platform === "win32"
-    ? path.join(WORKER_DIR, ".venv", "Scripts", "python.exe")
-    : path.join(WORKER_DIR, ".venv", "bin", "python");
+import {
+  WORKER_SRC,
+  venvPython,
+  venvReady,
+  workerEnv,
+} from "../scripts/paths.mjs";
 
 const HOST = process.env.BUILDPLATE_WORKER_HOST || "127.0.0.1";
 const PORT = process.env.BUILDPLATE_WORKER_PORT || "8081";
@@ -54,7 +50,6 @@ export async function probeHealth(timeoutMs = 2000) {
 }
 
 export function workerConfigured() {
-  // Always "configured" for localhost auto-managed worker.
   return true;
 }
 
@@ -62,27 +57,28 @@ export async function ensureWorker() {
   const existing = await probeHealth(1500);
   if (existing.online) return existing;
 
-  if (!existsSync(VENV_PY)) {
+  const py = venvPython();
+  if (!venvReady() || !existsSync(py)) {
     return {
       online: false,
       ready: false,
-      detail: "Worker venv missing — run: npm run setup",
+      detail: "Worker venv missing — run: npx buildplate setup",
     };
   }
 
   if (!child || child.exitCode != null) {
     console.error(`[buildplate] starting local worker on ${HOST}:${PORT}`);
     child = spawn(
-      VENV_PY,
+      py,
       ["server.py", "--lazy", "--verbose"],
       {
-        cwd: WORKER_DIR,
+        cwd: WORKER_SRC,
         stdio: ["ignore", "pipe", "pipe"],
         env: {
           ...process.env,
+          ...workerEnv(),
           BUILDPLATE_WORKER_HOST: HOST,
           BUILDPLATE_WORKER_PORT: String(PORT),
-          // Prefer real backend; allow stub only if explicitly set
           BUILDPLATE_ALLOW_STUB: process.env.BUILDPLATE_ALLOW_STUB || "0",
         },
         detached: false,
@@ -96,7 +92,6 @@ export async function ensureWorker() {
     });
   }
 
-  // Wait for /health to come up (models may still be loading → ready=false ok)
   const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
     const h = await probeHealth(2000);

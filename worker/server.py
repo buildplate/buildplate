@@ -17,7 +17,6 @@ import os
 import threading
 import time
 import uuid
-from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI, Header, HTTPException
@@ -27,14 +26,14 @@ from pydantic import BaseModel, Field
 
 from cad_compile import available_engines, cad_ready, compile_cad
 from device import pick_device
+from dirs import cache_dir
 from guide import PLAYBOOK, recommend
 from hunyuan_backend import hunyuan_available
 from pipeline import Backend, GenerateResult, create_backend, load_image_b64
 from refine import find_job_dir, latest_job_dir, refine_job
 from remesh import DEFAULT_TARGET_FACES
 
-HERE = Path(__file__).resolve().parent
-CACHE = Path(os.environ.get("BUILDPLATE_CACHE", str(HERE / "cache")))
+CACHE = cache_dir()
 CACHE.mkdir(parents=True, exist_ok=True)
 LOG_PATH = CACHE / "worker.log"
 

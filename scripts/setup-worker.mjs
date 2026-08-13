@@ -1,27 +1,17 @@
 #!/usr/bin/env node
 /**
- * Bootstrap Buildplate Python worker venv + deps.
+ * Bootstrap Buildplate Python worker venv + deps into ~/buildplate.
  * Picks python3.12 → 3.11 → 3.13 (skips 3.14 — torch wheels lag).
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync, chmodSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import os from "node:os";
+import { HOME, VENV, VENDOR, CACHE, SETUP_OK, WORKER_SRC } from "./paths.mjs";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.resolve(__dirname, "..");
-const WORKER = path.join(ROOT, "worker");
-const VENV = path.join(WORKER, ".venv");
-const REQ = path.join(WORKER, "requirements.txt");
-const VENDOR = path.join(WORKER, "vendor");
+const REQ = path.join(WORKER_SRC, "requirements.txt");
 const TRIPOSR = path.join(VENDOR, "TripoSR");
 const HUNYUAN = path.join(VENDOR, "Hunyuan3D-2");
-
-function which(cmd) {
-  const r = spawnSync(cmd, ["--version"], { encoding: "utf8" });
-  return r.status === 0;
-}
 
 function findPython() {
   const candidates = [
@@ -67,13 +57,11 @@ function venvPython() {
 }
 
 function installTorch(py) {
-  // Platform-specific torch index
   if (process.platform === "darwin") {
     run(py, ["-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"]);
     run(py, ["-m", "pip", "install", "torch", "torchvision", "torchaudio"]);
     return;
   }
-  // Linux/Windows: try CUDA torch if nvidia-smi exists, else CPU
   const nvsmi = spawnSync("nvidia-smi", [], { encoding: "utf8" });
   run(py, ["-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"]);
   if (nvsmi.status === 0) {
@@ -105,7 +93,9 @@ function installTorch(py) {
 
 console.log("Buildplate worker setup");
 console.log(`  platform: ${process.platform} ${os.arch()}`);
-console.log(`  worker:   ${WORKER}`);
+console.log(`  home:     ${HOME}`);
+console.log(`  venv:     ${VENV}`);
+console.log(`  vendor:   ${VENDOR}`);
 
 const py = findPython();
 if (!py) {
@@ -116,8 +106,10 @@ if (!py) {
 }
 console.log(`  python:   ${py.bin} (${py.ver})`);
 
+mkdirSync(HOME, { recursive: true });
+mkdirSync(CACHE, { recursive: true });
+
 if (!existsSync(path.join(VENV, "pyvenv.cfg"))) {
-  mkdirSync(WORKER, { recursive: true });
   run(py.bin, ["-m", "venv", VENV]);
 }
 
@@ -159,7 +151,6 @@ if (existsSync(hyInit)) {
 
 run(vpy, ["-m", "pip", "install", "-r", REQ]);
 
-// TripoSR + newer torch: weights_only=False for ckpt load
 const tsrSystem = path.join(TRIPOSR, "tsr", "system.py");
 if (existsSync(tsrSystem)) {
   let src = readFileSync(tsrSystem, "utf8");
@@ -186,27 +177,24 @@ if (existsSync(isoPath)) {
   }
 }
 
-// Marker for MCP / npm scripts
 writeFileSync(
-  path.join(WORKER, ".setup-ok"),
-  JSON.stringify({ python: py.ver, at: new Date().toISOString(), platform: process.platform }, null, 2) + "\n",
+  SETUP_OK,
+  JSON.stringify(
+    {
+      python: py.ver,
+      at: new Date().toISOString(),
+      platform: process.platform,
+      home: HOME,
+    },
+    null,
+    2,
+  ) + "\n",
 );
-
-const startSh = path.join(WORKER, "run.sh");
-writeFileSync(
-  startSh,
-  `#!/usr/bin/env bash
-set -euo pipefail
-cd "$(dirname "$0")"
-exec .venv/bin/python server.py "$@"
-`,
-);
-chmodSync(startSh, 0o755);
 
 console.log("");
-console.log("Setup complete.");
-console.log("  Start worker: npm run worker");
-console.log("  Or:          worker/.venv/bin/python worker/server.py --lazy");
+console.log("Setup complete. Models and venv live in ~/buildplate");
+console.log("  Start:     npx buildplate start");
+console.log("  MCP stdio: npx buildplate");
 console.log("");
 console.log("Mesh vendors:");
 console.log("  triposr  — fast (always)");
@@ -215,4 +203,4 @@ console.log("");
 console.log("CAD engines:");
 console.log("  trimesh+manifold3d — always on (agent writes trimesh_code)");
 console.log("  Optional OpenSCAD: brew install --cask openscad");
-console.log("  Optional CadQuery: worker/.venv/bin/pip install cadquery");
+console.log("  Optional CadQuery: ~/buildplate/venv/bin/pip install cadquery");

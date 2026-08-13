@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "buildplate": {
-      "command": "node",
-      "args": ["${workspaceFolder}/mcp/server.mjs"],
+      "command": "npx",
+      "args": ["-y", "buildplate"],
       "env": {
         "BUILDPLATE_PREVIEW_URL": "http://buildplate.localhost"
       }

@@ -8,7 +8,6 @@ morph geometry.
 from __future__ import annotations
 
 import logging
-import os
 import re
 from pathlib import Path
 from typing import Any
@@ -16,6 +15,7 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
+from dirs import cache_dir, out_dir
 from pipeline import GenerateResult, _export_mesh, _save_mesh_still
 
 logger = logging.getLogger("buildplate-worker")
@@ -41,9 +41,8 @@ def find_job_dir(job_id: str) -> Path | None:
     job_id = (job_id or "").strip()
     if not job_id or ".." in job_id or "/" in job_id or "\\" in job_id:
         return None
-    here = Path(__file__).resolve().parent
-    cache = Path(os.environ.get("BUILDPLATE_CACHE", str(here / "cache")))
-    out = Path(os.environ.get("BUILDPLATE_OUT_DIR", str(Path.home() / "buildplate" / "out")))
+    cache = cache_dir()
+    out = out_dir()
     for root in (cache / "jobs" / job_id, out / job_id, cache / job_id):
         if root.is_dir() and (_mesh_path(root) is not None):
             return root
@@ -51,9 +50,8 @@ def find_job_dir(job_id: str) -> Path | None:
 
 
 def latest_job_dir() -> Path | None:
-    here = Path(__file__).resolve().parent
-    cache = Path(os.environ.get("BUILDPLATE_CACHE", str(here / "cache")))
-    out = Path(os.environ.get("BUILDPLATE_OUT_DIR", str(Path.home() / "buildplate" / "out")))
+    cache = cache_dir()
+    out = out_dir()
     cands: list[Path] = []
     for root in (cache / "jobs", out):
         if not root.is_dir():

@@ -3,11 +3,11 @@ dist/
 preview/dist/
 .vite/
 *.log
+*.tgz
 .DS_Store
 .env
 .env.local
 
-# Worker runtime
 worker/.venv/
 worker/.setup-ok
 worker/cache/

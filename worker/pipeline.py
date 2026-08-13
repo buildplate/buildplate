@@ -20,8 +20,10 @@ from pathlib import Path
 from typing import Any
 import sys
 
-# Vendored TripoSR (cloned by npm run setup)
-_VENDOR_TSR = Path(__file__).resolve().parent / "vendor" / "TripoSR"
+from dirs import vendor_dir
+
+# Vendored TripoSR (cloned by npx buildplate setup into ~/buildplate/vendor)
+_VENDOR_TSR = vendor_dir() / "TripoSR"
 if _VENDOR_TSR.is_dir() and str(_VENDOR_TSR) not in sys.path:
     sys.path.insert(0, str(_VENDOR_TSR))
 
