@@ -159,7 +159,7 @@ if (existsSync(hyInit)) {
 
 run(vpy, ["-m", "pip", "install", "-r", REQ]);
 
-# TripoSR + newer torch: weights_only=False for ckpt load
+// TripoSR + newer torch: weights_only=False for ckpt load
 const tsrSystem = path.join(TRIPOSR, "tsr", "system.py");
 if (existsSync(tsrSystem)) {
   let src = readFileSync(tsrSystem, "utf8");
