@@ -35,6 +35,9 @@ export async function probeHealth(timeoutMs = 2000) {
     return {
       online: true,
       ready: Boolean(data.ready),
+      mesh_ready: Boolean(data.mesh_ready ?? data.ready),
+      cad_ready: data.cad_ready !== undefined ? Boolean(data.cad_ready) : true,
+      cad_engines: data.cad_engines ?? [],
       busy: Boolean(data.busy),
       model: data.model ?? null,
       device: data.device ?? null,

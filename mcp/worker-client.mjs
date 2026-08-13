@@ -18,32 +18,67 @@ export function missingWorkerError() {
 }
 
 /**
- * @param {{ prompt: string, image?: string|null, format?: "glb"|"stl", texture?: boolean }} opts
+ * @param {{
+ *   prompt?: string,
+ *   image?: string|null,
+ *   format?: "glb"|"stl",
+ *   texture?: boolean,
+ *   backend?: "auto"|"mesh"|"cad",
+ *   engine?: "auto"|"openscad"|"cadquery"|"trimesh"|null,
+ *   openscad?: string|null,
+ *   cadquery?: string|null,
+ *   trimesh_code?: string|null,
+ *   quality?: "fast"|"quality"|null,
+ *   vendor?: "triposr"|"hunyuan"|null,
+ *   remesh?: boolean,
+ *   target_faces?: number|null,
+ *   waitForMesh?: boolean,
+ * }} opts
  */
 export async function generateMeshFromWorker({
   prompt,
   image = null,
   format = "glb",
   texture = true,
+  backend = "auto",
+  engine = null,
+  openscad = null,
+  cadquery = null,
+  trimesh_code = null,
+  quality = null,
+  vendor = null,
+  remesh = true,
+  target_faces = null,
+  waitForMesh = true,
 }) {
   const health = await ensureWorker();
   if (!health.online) {
     throw new Error(health.detail || missingWorkerError());
   }
 
-  // Wait until models are ready (lazy load)
-  if (!health.ready) {
+  const mode = (backend || "auto").toLowerCase();
+  const needsMesh = mode === "mesh" || mode === "triposr" || (
+    mode === "auto" && !openscad && !cadquery && !trimesh_code
+  );
+
+  // CAD can run while TripoSR is still loading
+  if (needsMesh && waitForMesh && !health.mesh_ready && !health.ready) {
     const deadline = Date.now() + Number(process.env.BUILDPLATE_READY_TIMEOUT_MS || 600_000);
     while (Date.now() < deadline) {
       const h = await probeHealth(5000);
-      if (h.ready) break;
+      if (h.mesh_ready || (mode === "auto" && h.ready && !needsMesh)) break;
+      if (h.mesh_ready) break;
       if (h.detail && !h.online) throw new Error(h.detail);
       await new Promise((r) => setTimeout(r, 2000));
     }
     const final = await probeHealth(5000);
-    if (!final.ready) {
-      throw new Error(final.detail || "Worker models still loading — try again shortly");
+    if (needsMesh && !final.mesh_ready && !final.ready) {
+      throw new Error(final.detail || "Worker mesh models still loading — try again shortly");
     }
+  }
+
+  if (mode === "cad" && health.cad_ready === false) {
+    // Older workers may not report cad_ready — still try
   }
 
   const base = WORKER_URL.replace(/\/$/, "");
@@ -58,10 +93,19 @@ export async function generateMeshFromWorker({
 
   const body = {
     prompt: enriched,
-    type: format,
+    type: mode === "cad" ? "stl" : format,
     texture: Boolean(texture),
+    backend: mode,
   };
+  if (engine) body.engine = engine;
   if (imagePayload) body.image = imagePayload;
+  if (openscad) body.openscad = openscad;
+  if (cadquery) body.cadquery = cadquery;
+  if (trimesh_code) body.trimesh_code = trimesh_code;
+  if (quality) body.quality = quality;
+  if (vendor) body.vendor = vendor;
+  if (remesh === false) body.remesh = false;
+  if (target_faces) body.target_faces = target_faces;
 
   const headers = { "Content-Type": "application/json" };
   if (secret) headers["X-Worker-Secret"] = secret;
@@ -97,14 +141,14 @@ export async function generateMeshFromWorker({
     }
     logWorker("error", `generate failed: ${detail}`, { status: res.status });
     if (res.status === 429) throw new Error("Worker busy — one job at a time");
-    if (res.status === 503) throw new Error("Worker not ready (models still loading)");
+    if (res.status === 503) throw new Error(detail || "Worker not ready");
     throw new Error(`Worker failed: ${detail}`);
   }
 
   const contentType = (res.headers.get("content-type") || "").toLowerCase();
   const textured = res.headers.get("x-textured") === "1";
   const kind =
-    format === "stl" || contentType.includes("stl") ? "stl" : "glb";
+    format === "stl" || mode === "cad" || contentType.includes("stl") ? "stl" : "glb";
 
   const buffer = await res.arrayBuffer();
   if (!buffer || buffer.byteLength < 84) {
@@ -118,6 +162,8 @@ export async function generateMeshFromWorker({
     taskId: res.headers.get("x-job-id") || "local",
     prompt: enriched,
     previewPath: res.headers.get("x-preview-path") || null,
+    backend: res.headers.get("x-backend") || mode,
+    engine: res.headers.get("x-engine") || null,
   };
 }
 

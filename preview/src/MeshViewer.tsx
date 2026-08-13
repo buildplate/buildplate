@@ -184,8 +184,21 @@ function loadStl(buffer: ArrayBuffer): THREE.Object3D {
   return group;
 }
 
+function doubleSide(root: THREE.Object3D) {
+  root.traverse((obj) => {
+    const mesh = obj as THREE.Mesh;
+    if (!mesh.isMesh || !mesh.material) return;
+    const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    for (const mat of mats) {
+      mat.side = THREE.DoubleSide;
+      mat.needsUpdate = true;
+    }
+  });
+}
+
 /** Center + scale longest axis to ~80 units (≈ mm in print-ish space). */
 function normalize(root: THREE.Object3D) {
+  doubleSide(root);
   root.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(root);
   if (box.isEmpty()) return;

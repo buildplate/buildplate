@@ -18,11 +18,21 @@ def postprocess_mesh(mesh: Any) -> Any:
     mesh = _strip_relief_backing(mesh)
     mesh = _remove_large_planar_facets(mesh)
     mesh = _pca_upright(mesh)
-    mesh = _orient_feet_down(mesh)  # head/ears wide tip → top; feet compact → bottom
     mesh = _trim_horizontal_brims(mesh)
     mesh = _keep_best_component(mesh)
-    mesh = _sit_on_ground(mesh)
     return mesh
+
+
+def orient_mesh(mesh: Any, image: Any | None = None) -> Any:
+    """Plant feet (not the tail) and yaw to face the reference photo."""
+    if mesh is None:
+        return mesh
+    planted = _plant_feet_and_head(mesh)
+    if planted is not None:
+        mesh = planted
+    if image is not None:
+        mesh = _yaw_to_image(mesh, image)
+    return _sit_on_ground(mesh)
 
 
 def _keep_best_component(mesh: Any) -> Any:
@@ -150,41 +160,191 @@ def _pca_upright(mesh: Any) -> Any:
     return out
 
 
-def _orient_feet_down(mesh: Any) -> Any:
-    """
-    Prefer the orientation whose *bottom contact patch* is smaller.
-    Feet make a compact footprint; an upside-down head/ear-brim does not.
-    """
-    def prepare(m: Any, flip: bool) -> Any:
-        out = m.copy()
-        if flip:
-            out.vertices[:, 1] *= -1
-        out.vertices[:, 1] -= out.vertices[:, 1].min()
-        return out
+def _euler(pitch_deg: float, yaw_deg: float, roll_deg: float) -> np.ndarray:
+    p, y, r = np.deg2rad([pitch_deg, yaw_deg, roll_deg])
+    cp, sp = np.cos(p), np.sin(p)
+    cy, sy = np.cos(y), np.sin(y)
+    cr, sr = np.cos(r), np.sin(r)
+    rx = np.array([[1.0, 0.0, 0.0], [0.0, cp, -sp], [0.0, sp, cp]])
+    ry = np.array([[cy, 0.0, sy], [0.0, 1.0, 0.0], [-sy, 0.0, cy]])
+    rz = np.array([[cr, -sr, 0.0], [sr, cr, 0.0], [0.0, 0.0, 1.0]])
+    return ry @ rx @ rz
 
-    def bottom_contact(m: Any) -> float:
-        v = np.asarray(m.vertices, dtype=float)
-        ymin = float(v[:, 1].min())
-        span = float(np.ptp(v[:, 1])) + 1e-8
-        bot = v[v[:, 1] <= ymin + 0.1 * span]
-        if len(bot) < 12:
-            return 1e9
-        try:
-            from scipy.spatial import ConvexHull
 
-            return float(ConvexHull(bot[:, [0, 2]]).volume)  # 2D area
-        except Exception:
-            return float(np.ptp(bot[:, 0]) * np.ptp(bot[:, 2]))
+def _apply_rot(mesh: Any, rot: np.ndarray) -> Any:
+    out = mesh.copy()
+    center = np.asarray(out.vertices, dtype=float).mean(axis=0)
+    out.vertices = (np.asarray(out.vertices, dtype=float) - center) @ rot.T
+    return out
 
-    a = prepare(mesh, flip=False)
-    b = prepare(mesh, flip=True)
-    ca, cb = bottom_contact(a), bottom_contact(b)
-    logger.info("orient contact upright=%.5f flipped=%.5f", ca, cb)
-    if cb < ca * 0.92:
-        logger.info("orient: using flipped (smaller foot contact)")
-        return b
-    logger.info("orient: keeping current")
-    return a
+
+def _rot_align(frm: np.ndarray, to: np.ndarray) -> np.ndarray:
+    a = frm / (np.linalg.norm(frm) + 1e-12)
+    b = to / (np.linalg.norm(to) + 1e-12)
+    cr = np.cross(a, b)
+    n = np.linalg.norm(cr)
+    if n < 1e-8:
+        return np.eye(3) if float(np.dot(a, b)) > 0 else np.diag([1.0, -1.0, 1.0])
+    cr = cr / n
+    ang = np.arctan2(n, float(np.dot(a, b)))
+    k = np.array([[0.0, -cr[2], cr[1]], [cr[2], 0.0, -cr[0]], [-cr[1], cr[0], 0.0]])
+    return np.eye(3) + np.sin(ang) * k + (1.0 - np.cos(ang)) * (k @ k)
+
+
+def _cluster_points(pts: np.ndarray, eps: float) -> list[dict]:
+    cls: list[dict] = []
+    for p in pts:
+        hit = None
+        for cl in cls:
+            if np.linalg.norm(p - cl["sum"] / cl["n"]) < eps:
+                hit = cl
+                break
+        if hit is None:
+            cls.append({"sum": p.astype(float).copy(), "n": 1, "pts": [p]})
+        else:
+            hit["sum"] += p
+            hit["n"] += 1
+            hit["pts"].append(p)
+    return cls
+
+
+def _protrusions(verts: np.ndarray) -> list[dict]:
+    com = verts.mean(axis=0)
+    centered = verts - com
+    _, _, vh = np.linalg.svd(centered, full_matrices=False)
+    coords = centered @ vh.T
+    radius = np.linalg.norm(coords / (coords.std(axis=0) + 1e-8), axis=1)
+    scale = float(np.linalg.norm(verts.max(axis=0) - verts.min(axis=0)))
+    pts = verts[radius > 2.2]
+    if len(pts) < 40:
+        return []
+    raw = _cluster_points(pts, eps=0.10 * scale)
+    feats: list[dict] = []
+    for cl in raw:
+        if cl["n"] < 20:
+            continue
+        p = np.stack(cl["pts"])
+        mean = p.mean(axis=0)
+        off = mean - com
+        dist = float(np.linalg.norm(off)) + 1e-12
+        _, s, _ = np.linalg.svd(p - mean, full_matrices=False)
+        aniso = float(s[0] / (s[-1] + 1e-8))
+        feats.append(
+            {
+                "n": cl["n"],
+                "off": off,
+                "mean": mean,
+                "aniso": aniso,
+                "dist": dist,
+                "u": off / dist,
+                "pts": list(p),
+            }
+        )
+    merged: list[dict] = []
+    for feat in sorted(feats, key=lambda x: -x["n"]):
+        hit = None
+        for other in merged:
+            if float(np.dot(feat["u"], other["u"])) > 0.85:
+                hit = other
+                break
+        if hit is None:
+            merged.append(feat)
+            continue
+        hit["pts"].extend(feat["pts"])
+        hit["n"] += feat["n"]
+        p = np.stack(hit["pts"])
+        hit["mean"] = p.mean(axis=0)
+        hit["off"] = hit["mean"] - com
+        hit["dist"] = float(np.linalg.norm(hit["off"])) + 1e-12
+        hit["u"] = hit["off"] / hit["dist"]
+    return merged
+
+
+def _plant_feet_and_head(mesh: Any) -> Any | None:
+    """Up = ears minus feet. Tail is the longest thin stick and must not be the base."""
+    verts = np.asarray(mesh.vertices, dtype=float)
+    try:
+        feats = _protrusions(verts)
+    except Exception as err:
+        logger.debug("protrusions failed: %s", err)
+        return None
+    sticks = [f for f in feats if f["aniso"] > 6]
+    blobs = [f for f in feats if f["aniso"] <= 6]
+    if len(sticks) < 2 or len(blobs) < 2:
+        logger.info("orient: not enough limbs (sticks=%d blobs=%d)", len(sticks), len(blobs))
+        return None
+    tail = max(sticks, key=lambda f: f["dist"])
+    ears = [f for f in sticks if float(np.dot(f["u"], tail["u"])) < 0.7]
+    if len(ears) < 1:
+        return None
+    ear_mid = np.mean([f["mean"] for f in ears[:2]], axis=0)
+    com = verts.mean(axis=0)
+    ear_dir = ear_mid - com
+    ear_dir = ear_dir / (np.linalg.norm(ear_dir) + 1e-12)
+    feet = sorted(blobs, key=lambda f: float(np.dot(f["off"], ear_dir)))[:2]
+    foot_mid = np.mean([f["mean"] for f in feet], axis=0)
+    up = ear_mid - foot_mid
+    if np.linalg.norm(up) < 1e-8:
+        return None
+    rot = _rot_align(up, np.array([0.0, 1.0, 0.0]))
+    out = _apply_rot(mesh, rot)
+    # Confirm tail is not the lowest feature
+    def ymin(pts: np.ndarray) -> float:
+        return float(((pts - com) @ rot.T)[:, 1].min())
+
+    tail_y = ymin(np.stack(tail["pts"]))
+    foot_y = min(ymin(np.stack(f["pts"])) for f in feet)
+    logger.info(
+        "orient plant feet_y=%.3f tail_y=%.3f ears=%d",
+        foot_y,
+        tail_y,
+        len(ears),
+    )
+    if tail_y < foot_y - 0.02:
+        logger.info("orient plant rejected (tail still lower than feet)")
+        return None
+    return out
+
+
+def _yaw_to_image(mesh: Any, image: Any) -> Any:
+    """Rotate around Y only so the front matches the reference photo."""
+    from texture import _image_arrays, _iou, _occupancy, _preview_mesh, _resize_mask
+
+    _rgb, mask = _image_arrays(image)
+    target = _resize_mask(mask, 80)
+    target_prof = target.mean(axis=1)
+    verts = np.asarray(mesh.vertices, dtype=float)
+    faces = np.asarray(mesh.faces, dtype=int)
+    v_s, f_s = _preview_mesh(verts, faces, 3500)
+    center = v_s.mean(axis=0)
+    best = (-1e9, np.eye(3))
+    for yaw in range(0, 360, 15):
+        rot = _euler(0.0, yaw, 0.0)
+        vv = (v_s - center) @ rot.T
+        occ = _occupancy(vv, f_s, az=0, el=12, size=80)
+        iou = _iou(occ, target)
+        iou_m = _iou(np.fliplr(occ), target)
+        corr = _corr(occ.mean(axis=1), target_prof)
+        corr_m = _corr(np.fliplr(occ).mean(axis=1), target_prof)
+        s = iou + 0.4 * corr
+        s_m = iou_m + 0.4 * corr_m
+        if s > best[0]:
+            best = (s, rot)
+        if s_m > best[0]:
+            best = (s_m, np.diag([-1.0, 1.0, 1.0]) @ rot)
+    logger.info("orient yaw-to-image score=%.3f", best[0])
+    return _apply_rot(mesh, best[1])
+
+
+def _corr(a: np.ndarray, b: np.ndarray) -> float:
+    a = np.asarray(a, dtype=float).ravel()
+    b = np.asarray(b, dtype=float).ravel()
+    if a.size != b.size or a.size < 4:
+        return 0.0
+    a = a - a.mean()
+    b = b - b.mean()
+    den = float(np.linalg.norm(a) * np.linalg.norm(b)) + 1e-8
+    return float(np.dot(a, b) / den)
 
 
 def _trim_horizontal_brims(mesh: Any) -> Any:

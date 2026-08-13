@@ -27,7 +27,9 @@ if _VENDOR_TSR.is_dir() and str(_VENDOR_TSR) not in sys.path:
 from PIL import Image
 
 from device import DeviceInfo, pick_device
-from mesh_ops import postprocess_mesh
+from mesh_ops import postprocess_mesh, orient_mesh
+from preprocess import composite_white, remove_bg
+from remesh import DEFAULT_TARGET_FACES, remesh_mesh
 
 logger = logging.getLogger("buildplate-worker")
 
@@ -58,6 +60,8 @@ class Backend(ABC):
         out_dir: Path,
         fmt: str,
         texture: bool,
+        remesh: bool = True,
+        target_faces: int = DEFAULT_TARGET_FACES,
     ) -> GenerateResult: ...
 
 
@@ -87,6 +91,8 @@ class StubBackend(Backend):
         out_dir: Path,
         fmt: str,
         texture: bool,
+        remesh: bool = True,
+        target_faces: int = DEFAULT_TARGET_FACES,
     ) -> GenerateResult:
         import numpy as np
         import trimesh
@@ -166,15 +172,6 @@ class TripoSRBackend(Backend):
                 **pipe_kwargs,
             )
             self._t2i.to(self.device.torch_device)
-
-            try:
-                from rembg import new_session
-
-                self._rembg_session = new_session("u2net")
-            except Exception as err:
-                logger.warning("rembg unavailable (%s) — skipping bg removal", err)
-                self._rembg_session = None
-
             self._loaded = True
             self._load_error = None
             logger.info("Backend ready in %.1fs", time.time() - t0)
@@ -200,46 +197,6 @@ class TripoSRBackend(Backend):
         )
         return result.images[0].convert("RGBA")
 
-    def _remove_bg(self, image: Image.Image) -> Image.Image:
-        if self._rembg_session is None:
-            return image.convert("RGBA")
-        from rembg import remove
-        import numpy as np
-        from scipy import ndimage
-
-        cut = remove(image.convert("RGBA"), session=self._rembg_session)
-        arr = np.array(cut)
-        alpha = arr[:, :, 3]
-        alpha = (alpha >= 40).astype(np.uint8) * 255
-        # Keep only the largest connected opaque blob (drop floor scraps / 2nd subject)
-        labeled, n = ndimage.label(alpha > 0)
-        if n > 1:
-            sizes = ndimage.sum(alpha > 0, labeled, index=range(1, n + 1))
-            keep = int(np.argmax(sizes)) + 1
-            alpha = np.where(labeled == keep, alpha, 0).astype(np.uint8)
-            logger.info("rembg blobs=%d kept=%d", n, int(np.max(sizes)))
-        # Stronger erode to shave fuzzy halo that becomes ear/floor fins
-        mask = alpha > 0
-        mask = ndimage.binary_erosion(mask, iterations=2)
-        arr[:, :, 3] = np.where(mask, 255, 0).astype(np.uint8)
-        arr[arr[:, :, 3] == 0, :3] = 255
-
-        ys, xs = np.where(arr[:, :, 3] > 0)
-        if len(xs) == 0:
-            return Image.fromarray(arr, mode="RGBA")
-        pad = 24
-        x0, x1 = max(0, xs.min() - pad), min(arr.shape[1], xs.max() + pad + 1)
-        y0, y1 = max(0, ys.min() - pad), min(arr.shape[0], ys.max() + pad + 1)
-        cropped = arr[y0:y1, x0:x1]
-        side = int(max(cropped.shape[0], cropped.shape[1]) * 1.4)
-        side = max(side, 256)
-        canvas = np.zeros((side, side, 4), dtype=np.uint8)
-        canvas[:, :, :3] = 255
-        oy = (side - cropped.shape[0]) // 2
-        ox = (side - cropped.shape[1]) // 2
-        canvas[oy : oy + cropped.shape[0], ox : ox + cropped.shape[1]] = cropped
-        return Image.fromarray(canvas, mode="RGBA")
-
     def generate(
         self,
         *,
@@ -248,6 +205,8 @@ class TripoSRBackend(Backend):
         out_dir: Path,
         fmt: str,
         texture: bool,
+        remesh: bool = True,
+        target_faces: int = DEFAULT_TARGET_FACES,
     ) -> GenerateResult:
         if not self._loaded:
             self.load()
@@ -265,11 +224,9 @@ class TripoSRBackend(Backend):
             image = image.convert("RGBA")
             image.save(out_dir / "input.png")
 
-        cutout = self._remove_bg(image)
+        cutout = remove_bg(image)
         cutout.save(out_dir / "cutout.png")
-
-        bg = Image.new("RGBA", cutout.size, (255, 255, 255, 255))
-        composited = Image.alpha_composite(bg, cutout).convert("RGB")
+        composited = composite_white(cutout)
         composited.save(out_dir / "composited.png")
 
         import numpy as np
@@ -299,40 +256,98 @@ class TripoSRBackend(Backend):
                 logger.warning("preview render failed: %s", err)
 
         mesh = postprocess_mesh(meshes[0])
-        kind = "stl" if fmt == "stl" else "glb"
-        path = out_dir / f"model.{kind}"
-
-        if kind == "stl":
-            mesh.export(str(path))
-        else:
-            try:
-                mesh.export(str(path), file_type="glb")
-            except Exception:
-                alt = out_dir / "model.obj"
-                mesh.export(str(alt))
-                path = alt
-                kind = "obj"
-
-        # Also bake a simple shaded still from the cleaned mesh (orientation-correct)
-        try:
-            _save_mesh_still(mesh, out_dir / "preview.png")
-        except Exception as err:
-            logger.warning("mesh still failed: %s", err)
-
-        elapsed = time.time() - t0
-        return GenerateResult(
-            path=path,
-            kind=kind if kind != "obj" else "glb",
-            textured=False,
-            meta={
-                "backend": self.name,
-                "device": self.device.label,
-                "prompt": prompt,
-                "seconds": round(elapsed, 2),
-                "texture_requested": texture,
-                "preview": str(out_dir / "preview.png"),
-            },
+        return finish_generated_mesh(
+            mesh,
+            out_dir=out_dir,
+            fmt=fmt,
+            texture=texture,
+            image=composited,
+            remesh=remesh,
+            target_faces=target_faces,
+            prompt=prompt,
+            backend_name=self.name,
+            device_label=self.device.label,
+            extra_meta={"seconds": round(time.time() - t0, 2)},
         )
+
+
+def finish_generated_mesh(
+    mesh,
+    *,
+    out_dir: Path,
+    fmt: str,
+    texture: bool,
+    image: Image.Image | None,
+    remesh: bool,
+    target_faces: int,
+    prompt: str | None,
+    backend_name: str,
+    device_label: str,
+    extra_meta: dict[str, Any] | None = None,
+) -> GenerateResult:
+    if remesh:
+        mesh = remesh_mesh(mesh, target_faces=target_faces)
+
+    try:
+        mesh = orient_mesh(mesh, image)
+    except Exception as err:
+        logger.warning("orient failed: %s", err)
+
+    textured = False
+    if texture and image is not None:
+        try:
+            from texture import bake_reference_pbr
+
+            mesh = bake_reference_pbr(mesh, image, out_dir=out_dir)
+            textured = True
+            fmt = "glb"
+        except Exception as err:
+            logger.warning("texture bake failed: %s", err)
+
+    path, kind = _export_mesh(mesh, out_dir, fmt)
+    if textured:
+        try:
+            import trimesh
+
+            trimesh.Trimesh(mesh.vertices, mesh.faces, process=False).export(
+                str(out_dir / "model.stl")
+            )
+        except Exception as err:
+            logger.debug("stl sidecar failed: %s", err)
+
+    try:
+        _save_mesh_still(mesh, out_dir / "preview.png")
+    except Exception as err:
+        logger.warning("mesh still failed: %s", err)
+
+    meta = {
+        "backend": backend_name,
+        "device": device_label,
+        "prompt": prompt,
+        "texture_requested": texture,
+        "remesh": remesh,
+        "target_faces": target_faces,
+        "preview": str(out_dir / "preview.png"),
+        "texture_mode": "view_project_pbr" if textured else "none",
+    }
+    if extra_meta:
+        meta.update(extra_meta)
+    return GenerateResult(path=path, kind=kind, textured=textured, meta=meta)
+
+
+def _export_mesh(mesh, out_dir: Path, fmt: str) -> tuple[Path, str]:
+    kind = "stl" if fmt == "stl" else "glb"
+    path = out_dir / f"model.{kind}"
+    if kind == "stl":
+        mesh.export(str(path))
+        return path, "stl"
+    try:
+        mesh.export(str(path), file_type="glb")
+        return path, "glb"
+    except Exception:
+        alt = out_dir / "model.obj"
+        mesh.export(str(alt))
+        return alt, "glb"
 
 
 def _save_mesh_still(mesh, path: Path, size: int = 512) -> None:
@@ -345,6 +360,11 @@ def _save_mesh_still(mesh, path: Path, size: int = 512) -> None:
     from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
     m = mesh.copy()
+    try:
+        if getattr(m.visual, "kind", None) == "texture":
+            m.visual = m.visual.to_color()
+    except Exception:
+        pass
     if len(m.faces) > 20_000:
         try:
             m = m.simplify_quadric_decimation(20_000)
@@ -363,8 +383,9 @@ def _save_mesh_still(mesh, path: Path, size: int = 512) -> None:
     fig = plt.figure(figsize=(size / 100, size / 100), dpi=100)
     ax = fig.add_subplot(111, projection="3d")
     coll = Poly3DCollection(plot_tris, linewidths=0.02, alpha=1.0)
-    coll.set_facecolor((0.78, 0.82, 0.88, 1.0))
-    coll.set_edgecolor((0.3, 0.35, 0.4, 0.12))
+    face_rgb = _still_face_colors(m)
+    coll.set_facecolor(face_rgb)
+    coll.set_edgecolor((0.15, 0.15, 0.18, 0.08))
     ax.add_collection3d(coll)
 
     c = verts.mean(axis=0)
@@ -386,12 +407,35 @@ def _save_mesh_still(mesh, path: Path, size: int = 512) -> None:
     plt.close(fig)
 
 
+def _still_face_colors(mesh) -> Any:
+    import numpy as np
+
+    gray = (0.78, 0.82, 0.88, 1.0)
+    try:
+        vis = mesh.visual
+        if vis is None:
+            return gray
+        if getattr(vis, "kind", None) == "texture":
+            vis = vis.to_color()
+        cols = np.asarray(vis.vertex_colors, dtype=float)
+        if cols.ndim != 2 or len(cols) < len(mesh.vertices):
+            return gray
+        face = cols[mesh.faces][:, :, :3].mean(axis=1) / 255.0
+        alpha = np.ones((len(face), 1))
+        return np.concatenate([face, alpha], axis=1)
+    except Exception:
+        return gray
+
+
 def create_backend(prefer: str | None = None) -> Backend:
     """
-    prefer: "triposr" | "stub" | None (auto)
-    Auto tries TripoSR; falls back to stub if BUILDPLATE_ALLOW_STUB=1 and load fails at boot.
+    prefer: "triposr" | "hunyuan" | "stub" | "fast" | "quality" | None
     """
     choice = (prefer or "").strip().lower() or None
     if choice == "stub":
         return StubBackend()
+    if choice in ("hunyuan", "quality"):
+        from hunyuan_backend import HunyuanBackend
+
+        return HunyuanBackend(pick_device())
     return TripoSRBackend(pick_device())

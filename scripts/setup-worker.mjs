@@ -16,6 +16,7 @@ const VENV = path.join(WORKER, ".venv");
 const REQ = path.join(WORKER, "requirements.txt");
 const VENDOR = path.join(WORKER, "vendor");
 const TRIPOSR = path.join(VENDOR, "TripoSR");
+const HUNYUAN = path.join(VENDOR, "Hunyuan3D-2");
 
 function which(cmd) {
   const r = spawnSync(cmd, ["--version"], { encoding: "utf8" });
@@ -133,6 +134,29 @@ if (!existsSync(path.join(TRIPOSR, "tsr", "system.py"))) {
   console.log("→ TripoSR vendor present");
 }
 
+if (!existsSync(path.join(HUNYUAN, "hy3dgen", "shapegen", "pipelines.py"))) {
+  mkdirSync(VENDOR, { recursive: true });
+  if (existsSync(HUNYUAN)) {
+    spawnSync("rm", ["-rf", HUNYUAN], { stdio: "inherit" });
+  }
+  run("git", ["clone", "--depth", "1", "https://github.com/Tencent-Hunyuan/Hunyuan3D-2.git", HUNYUAN]);
+} else {
+  console.log("→ Hunyuan3D-2 vendor present");
+}
+
+const hyInit = path.join(HUNYUAN, "hy3dgen", "shapegen", "__init__.py");
+if (existsSync(hyInit)) {
+  let src = readFileSync(hyInit, "utf8");
+  if (src.includes("from .postprocessors import")) {
+    src = src.replace(
+      /from \.postprocessors import[^\n]*\n/,
+      "# postprocessors skipped — pymeshlab not required; Buildplate remeshes after shape\n",
+    );
+    writeFileSync(hyInit, src);
+    console.log("→ patched Hunyuan shapegen to skip pymeshlab postprocessors");
+  }
+}
+
 run(vpy, ["-m", "pip", "install", "-r", REQ]);
 
 # TripoSR + newer torch: weights_only=False for ckpt load
@@ -183,3 +207,12 @@ console.log("");
 console.log("Setup complete.");
 console.log("  Start worker: npm run worker");
 console.log("  Or:          worker/.venv/bin/python worker/server.py --lazy");
+console.log("");
+console.log("Mesh vendors:");
+console.log("  triposr  — fast (always)");
+console.log("  hunyuan  — quality shape (Hunyuan3D-2mini, lazy-loaded on first quality generate)");
+console.log("");
+console.log("CAD engines:");
+console.log("  trimesh+manifold3d — always on (agent writes trimesh_code)");
+console.log("  Optional OpenSCAD: brew install --cask openscad");
+console.log("  Optional CadQuery: worker/.venv/bin/pip install cadquery");

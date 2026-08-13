@@ -6,6 +6,7 @@ pydantic>=2.0
 pillow>=10.0
 numpy>=1.26,<2.3
 trimesh>=4.0
+manifold3d>=2.5
 matplotlib>=3.8
 diffusers>=0.30.0,<0.31
 transformers>=4.40.0,<4.45
@@ -19,5 +20,8 @@ einops>=0.7.0
 imageio>=2.34.0
 imageio-ffmpeg>=0.5.0
 xatlas>=0.0.9
+opencv-python>=4.8.0
+fast-simplification>=0.1.7
+pymeshfix>=0.17.0
 # Marching cubes used by TripoSR (CPU works on Mac)
 git+https://github.com/tatsy/torchmcubes.git

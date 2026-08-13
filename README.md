@@ -1,90 +1,76 @@
 # Buildplate
 
-Local-first text-to-3D for agents. Clone it, install, run — **your machine** does the work (Apple Silicon Mac or NVIDIA PC). Primary interface is a **localhost MCP** your agent connects to.
+Local 3D for agents. Your Mac or PC does the work. Cursor talks to it over **MCP**.
 
-## Quick start
+You (the agent) pick **CAD vs mesh**, write solids or fetch a photo. Buildplate only compiles / reconstructs.
+
+## 1. Install
+
+Needs **Node 20+** and **Python 3.10–3.13** (3.12 is best). Apple Silicon 16 GB+ or NVIDIA 8 GB+ VRAM.
 
 ```bash
 git clone https://github.com/jordan-homan/buildplate.git
 cd buildplate
 npm install
-npm run setup      # Python venv + PyTorch + TripoSR (one-time, downloads models on first generate)
-npm start          # local worker (:8081) + preview (:3920)
+npm run setup    # once — venv, PyTorch, TripoSR, Hunyuan
+npm start        # worker :8081 + preview :3920
 ```
 
-Then point your agent at the MCP (stdio):
+Open this folder in Cursor, then add the MCP:
 
-```bash
-npm run mcp
+[![Add to Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](cursor://anysphere.cursor-deeplink/mcp/install?name=buildplate&config=eyJjb21tYW5kIjoibm9kZSIsImFyZ3MiOlsiJHt3b3Jrc3BhY2VGb2xkZXJ9L21jcC9zZXJ2ZXIubWpzIl0sImVudiI6eyJCVUlMRFBMQVRFX1BSRVZJRVdfVVJMIjoiaHR0cDovLzEyNy4wLjAuMTozOTIwIn19)
+
+Or paste into `.cursor/mcp.json` (GitHub’s copy button on the block works too):
+
+```json
+{
+  "mcpServers": {
+    "buildplate": {
+      "command": "node",
+      "args": ["${workspaceFolder}/mcp/server.mjs"],
+      "env": { "BUILDPLATE_PREVIEW_URL": "http://127.0.0.1:3920" }
+    }
+  }
+}
 ```
 
-Or add [`examples/cursor-mcp.json`](./examples/cursor-mcp.json) to Cursor’s MCP config. The MCP **auto-starts** the local worker if it isn’t already up — no remote GPU URL, no Tailscale Funnel.
+If Buildplate is a **subfolder** of your workspace, use `${workspaceFolder}/buildplate/mcp/server.mjs`. The MCP starts the worker if it isn’t already up.
 
-### One-liner (target)
+## 2. Copy to your agent
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/jordan-homan/buildplate/main/scripts/install.sh | bash
+Paste this into the chat (or keep [`AGENTS.md`](./AGENTS.md) in the repo — Cursor will read it):
+
+```
+You have Buildplate MCP (local 3D). Tools: health, save_reference, generate, export_stl, preview.
+
+CAD — brackets, boxes, enclosures, anything with mm / holes / flats:
+  You author geometry. Prefer trimesh_code (always on). Must set result=.
+  generate({ backend: "cad", prompt, trimesh_code, format: "stl" })
+  Example:
+    import trimesh
+    box = trimesh.creation.box(extents=[40, 30, 12])
+    hole = trimesh.creation.cylinder(radius=3, height=20)
+    hole.apply_translation([10, 0, 0])
+    result = box.difference(hole)
+
+Mesh — characters, toys, organic / look-like-a-photo:
+  save_reference (user photo or a clean web image)
+  generate({ backend: "mesh", image_path, prompt, quality: "quality" })
+  quality=fast is TripoSR (softer, quicker). Do not use mesh for hard-edged products.
+
+If generate is incomplete it returns a retry recipe — follow it. Then preview.
 ```
 
 ## What you get
 
-| Surface | Role |
-|---------|------|
-| **MCP** | `health`, `generate`, `export_stl`, `preview` |
-| **Worker** | Local text/image → mesh (TripoSR pipeline) on Metal / CUDA / CPU |
-| **Preview** | Read-only 3D viewer + **Export STL** at http://127.0.0.1:3920 |
+| | |
+|--|--|
+| **CAD** | Agent-authored trimesh / OpenSCAD / CadQuery → STL |
+| **Mesh** | Photo → Hunyuan (quality) or TripoSR (fast) → remesh → PBR albedo → GLB |
+| **Preview** | http://127.0.0.1:3920 — orbit + Export STL |
 
-## Recommended specs
+Optional: `brew install --cask openscad`, or `worker/.venv/bin/pip install cadquery`.
 
-| | Minimum | Comfortable | Notes |
-|--|---------|-------------|--------|
-| **Apple Silicon** | M1 / M2, **16 GB** unified | **M1 Pro/Max+**, **32 GB+** | Metal (MPS). This is the primary Mac path. |
-| **Windows / Linux** | NVIDIA **8 GB** VRAM | **12–16 GB+** VRAM | CUDA. AMD/Intel GPU not supported yet (CPU fallback is slow). |
-| **CPU-only** | 16 GB RAM | 32 GB+ | Works, but text→3D can take many minutes. |
-| **Disk** | ~8 GB free | ~15 GB | PyTorch + SD-Turbo + TripoSR weights. |
-| **OS** | macOS 13+ (Apple Silicon), Windows 10+, Ubuntu 22.04+ | latest | Intel Macs: CPU only (no MPS). |
-| **Node** | 20+ | 22+ | MCP + preview |
-| **Python** | 3.10–3.13 | 3.12 | Created by `npm run setup` |
+## License
 
-**Assumption:** end users are on an **M1–M5 Mac** or an **NVIDIA GPU PC**. We do **not** assume a discrete GPU on Mac — unified memory + Metal is enough at 16 GB+, happier at 32 GB.
-
-## How generation works
-
-```
-prompt  →  SD-Turbo (text→image)  →  rembg  →  TripoSR (image→mesh)  →  GLB/STL
-image   →  rembg                  →  TripoSR                         →  GLB/STL
-```
-
-Device is auto-selected: **MPS → CUDA → CPU**.
-
-## MCP tools
-
-| Tool | What it does |
-|------|----------------|
-| `health` | Worker online / ready / device |
-| `generate` | Prompt (+ optional image) → `~/buildplate/out/<jobId>/` |
-| `export_stl` | Path to STL for a job |
-| `preview` | Open localhost viewer |
-
-## Architecture
-
-```
-Agent (Cursor / Claude / …)
-        │  MCP stdio
-        ▼
-buildplate MCP  ──auto-spawn──►  local worker :8081
-        │                              │
-        └──── preview :3920 ◄──────────┘
-```
-
-See [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md).
-
-## License / models
-
-Code: MIT (`LICENSE`).
-
-TripoSR / SD-Turbo weights have their own licenses (Stability AI / Tripo). Buildplate does not vendor weights in git — they download on first use.
-
-## Status
-
-Private while we harden Mac install + first-generate UX. Public when `npm run setup && npm start` feels good on M-series and an NVIDIA box.
+Code: MIT. Model weights (TripoSR, SD-Turbo, Hunyuan3D-2mini) have their own licenses and download on first use.

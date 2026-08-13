@@ -1,9 +1,9 @@
 {
   "name": "buildplate",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
-  "description": "Local-first text-to-3D MCP for agents — runs on your Mac or PC",
+  "description": "Local-first mesh+CAD MCP for agents — Hunyuan/TripoSR and agent-authored CSG on your Mac or PC",
   "bin": {
     "buildplate": "./mcp/server.mjs"
   },
