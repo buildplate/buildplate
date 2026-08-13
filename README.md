@@ -113,7 +113,7 @@ CAD (trimesh CSG) is CPU-only and light. Mesh reconstruction needs the GPU/unifi
 
 ---
 
-## Install
+## Or install yourself
 
 ```bash
 git clone https://github.com/buildplate/buildplate.git
