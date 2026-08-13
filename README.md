@@ -1,49 +1,88 @@
 # Buildplate
 
-Local 3D for agents. Your Mac or PC does the work. Cursor talks to it over **MCP**.
+Local 3D for agents. Your machine compiles / reconstructs. The agent thinks (CAD vs mesh, photos, solids). Talks over **MCP** — Cursor, Claude, Codex, or anything that speaks stdio MCP.
 
-You (the agent) pick **CAD vs mesh**, write solids or fetch a photo. Buildplate only compiles / reconstructs.
+## Hardware
 
-## 1. Install
+| | Minimum | Recommended |
+|--|--|--|
+| **Apple Silicon** | M1/M2, 16 GB unified — `quality=fast` (TripoSR) | M1 Pro/Max or M2+, **32 GB** — `quality=quality` (Hunyuan) |
+| **NVIDIA** | 8 GB VRAM — `quality=fast` | **12 GB+** VRAM — `quality=quality` |
+| **OS** | macOS 14+, Ubuntu 22.04+, Windows 11 (WSL2) | macOS on Apple Silicon |
+| **Node** | 20+ | 20 LTS |
+| **Python** | 3.10–3.13 | **3.12** (3.14 has no torch wheels yet) |
 
-Needs **Node 20+** and **Python 3.10–3.13** (3.12 is best). Apple Silicon 16 GB+ or NVIDIA 8 GB+ VRAM.
+CAD (trimesh CSG) is CPU-only and light. Mesh reconstruction needs the GPU/unified memory above. CPU-only mesh is possible and very slow — not recommended.
 
-```bash
-git clone https://github.com/jordan-homan/buildplate.git
-cd buildplate
-npm install
-npm run setup    # once — venv, PyTorch, TripoSR, Hunyuan
-npm start        # worker :8081 + preview :3920
+---
+
+## Option 1 — Agent mode
+
+Paste the block below into your agent (Cursor, Claude Code, Claude Desktop, Codex, …). GitHub’s copy button on the fence works. It installs Buildplate **and** wires MCP into whichever client you are using.
+
 ```
+Set up Buildplate (local 3D MCP) on this machine, then add it to THIS product as an MCP server.
 
-Open this folder in Cursor, then add the MCP:
+## Install (run; skip a step if already done)
+Need Node 20+ and Python 3.10–3.13 (3.12 best).
+  git clone https://github.com/buildplate/buildplate.git
+  cd buildplate
+  npm install
+  npm run setup    # once — venv, PyTorch, TripoSR, Hunyuan
+  npm start        # worker :8081 + preview :3920  (leave running)
 
-[![Add to Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](cursor://anysphere.cursor-deeplink/mcp/install?name=buildplate&config=eyJjb21tYW5kIjoibm9kZSIsImFyZ3MiOlsiJHt3b3Jrc3BhY2VGb2xkZXJ9L21jcC9zZXJ2ZXIubWpzIl0sImVudiI6eyJCVUlMRFBMQVRFX1BSRVZJRVdfVVJMIjoiaHR0cDovLzEyNy4wLjAuMTozOTIwIn19)
+REPO is the absolute path to the clone (pwd after cd). MCP entrypoint: $REPO/mcp/server.mjs
+Env: BUILDPLATE_PREVIEW_URL=http://127.0.0.1:3920
+The MCP auto-starts the worker if it is not up; preview still wants `npm start` or `npm run preview`.
 
-Or paste into `.cursor/mcp.json` (GitHub’s copy button on the block works too):
+## Add MCP to this client (detect which you are; do not ask the user to click around)
 
-```json
-{
-  "mcpServers": {
-    "buildplate": {
-      "command": "node",
-      "args": ["${workspaceFolder}/mcp/server.mjs"],
-      "env": { "BUILDPLATE_PREVIEW_URL": "http://127.0.0.1:3920" }
+Cursor:
+  Write/merge .cursor/mcp.json in the workspace:
+  {
+    "mcpServers": {
+      "buildplate": {
+        "command": "node",
+        "args": ["${workspaceFolder}/mcp/server.mjs"],
+        "env": { "BUILDPLATE_PREVIEW_URL": "http://127.0.0.1:3920" }
+      }
     }
   }
-}
-```
+  If Buildplate is a subfolder of the workspace, args is
+  ["${workspaceFolder}/buildplate/mcp/server.mjs"]. Reload MCP.
 
-If Buildplate is a **subfolder** of your workspace, use `${workspaceFolder}/buildplate/mcp/server.mjs`. The MCP starts the worker if it isn’t already up.
+Claude Code:
+  claude mcp add --transport stdio --env BUILDPLATE_PREVIEW_URL=http://127.0.0.1:3920 buildplate -- node $REPO/mcp/server.mjs
 
-## 2. Copy to your agent
+Claude Desktop:
+  Merge into mcpServers (absolute path, not ${workspaceFolder}):
+  macOS: ~/Library/Application Support/Claude/claude_desktop_config.json
+  Windows: %APPDATA%\Claude\claude_desktop_config.json
+  {
+    "mcpServers": {
+      "buildplate": {
+        "command": "node",
+        "args": ["$REPO/mcp/server.mjs"],
+        "env": { "BUILDPLATE_PREVIEW_URL": "http://127.0.0.1:3920" }
+      }
+    }
+  }
+  Fully quit and relaunch Claude Desktop.
 
-Paste this into the chat (or keep [`AGENTS.md`](./AGENTS.md) in the repo — Cursor will read it):
+Codex (CLI / IDE):
+  codex mcp add buildplate --env BUILDPLATE_PREVIEW_URL=http://127.0.0.1:3920 -- node $REPO/mcp/server.mjs
+  Or merge into ~/.codex/config.toml:
+  [mcp_servers.buildplate]
+  command = "node"
+  args = ["$REPO/mcp/server.mjs"]
+  env = { BUILDPLATE_PREVIEW_URL = "http://127.0.0.1:3920" }
 
-```
-You have Buildplate MCP (local 3D). Tools: health, save_reference, generate, refine, export_stl, preview.
+Any other MCP client: stdio, command=node, args=[$REPO/mcp/server.mjs], same env.
 
-CAD — brackets, boxes, enclosures, anything with mm / holes / flats:
+Then call health. Tools: health, save_reference, generate, refine, export_stl, preview.
+
+## How to use the tools
+CAD — brackets, boxes, enclosures, mm / holes / flats:
   You author geometry. Prefer trimesh_code (always on). Must set result=.
   generate({ backend: "cad", prompt, trimesh_code, format: "stl" })
   Example:
@@ -64,6 +103,81 @@ Follow-ups: color/material → refine({ job_id, prompt, color }) keeps the mesh.
   e.g. refine({ job_id, prompt: "make it green instead of yellow", color: "green" })
 Shape changes (longer ears, extra parts) → new generate, or edit CAD source and re-generate.
 ```
+
+In-repo, agents can also read [`AGENTS.md`](./AGENTS.md).
+
+---
+
+## Option 2 — One-liners
+
+```bash
+git clone https://github.com/buildplate/buildplate.git
+cd buildplate
+npm install
+npm run setup
+npm start
+```
+
+Then add MCP for your client. Replace `/ABS/PATH/buildplate` with the clone path.
+
+### Cursor
+
+[![Add to Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](cursor://anysphere.cursor-deeplink/mcp/install?name=buildplate&config=eyJjb21tYW5kIjoibm9kZSIsImFyZ3MiOlsiJHt3b3Jrc3BhY2VGb2xkZXJ9L21jcC9zZXJ2ZXIubWpzIl0sImVudiI6eyJCVUlMRFBMQVRFX1BSRVZJRVdfVVJMIjoiaHR0cDovLzEyNy4wLjAuMTozOTIwIn19)
+
+Or `.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "buildplate": {
+      "command": "node",
+      "args": ["${workspaceFolder}/mcp/server.mjs"],
+      "env": { "BUILDPLATE_PREVIEW_URL": "http://127.0.0.1:3920" }
+    }
+  }
+}
+```
+
+Subfolder workspace: `${workspaceFolder}/buildplate/mcp/server.mjs`.
+
+### Claude Code
+
+```bash
+claude mcp add --transport stdio --env BUILDPLATE_PREVIEW_URL=http://127.0.0.1:3920 buildplate -- node /ABS/PATH/buildplate/mcp/server.mjs
+```
+
+### Claude Desktop
+
+`~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows). Merge, then fully quit and relaunch:
+
+```json
+{
+  "mcpServers": {
+    "buildplate": {
+      "command": "node",
+      "args": ["/ABS/PATH/buildplate/mcp/server.mjs"],
+      "env": { "BUILDPLATE_PREVIEW_URL": "http://127.0.0.1:3920" }
+    }
+  }
+}
+```
+
+### Codex
+
+```bash
+codex mcp add buildplate --env BUILDPLATE_PREVIEW_URL=http://127.0.0.1:3920 -- node /ABS/PATH/buildplate/mcp/server.mjs
+```
+
+Or `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.buildplate]
+command = "node"
+args = ["/ABS/PATH/buildplate/mcp/server.mjs"]
+env = { BUILDPLATE_PREVIEW_URL = "http://127.0.0.1:3920" }
+```
+
+---
 
 ## What you get
 
