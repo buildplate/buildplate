@@ -49,5 +49,10 @@ export default defineConfig({
     port: 3920,
     strictPort: true,
     allowedHosts: ["buildplate.localhost", "localhost"],
+    origin: "http://buildplate.localhost",
+    hmr: {
+      host: "buildplate.localhost",
+      clientPort: 80,
+    },
   },
 });

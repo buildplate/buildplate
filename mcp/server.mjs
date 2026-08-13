@@ -32,7 +32,7 @@ const OUT_DIR = process.env.BUILDPLATE_OUT_DIR?.trim()
   || path.join(os.homedir(), "buildplate", "out");
 const REFS_DIR = process.env.BUILDPLATE_REFS_DIR?.trim()
   || path.join(os.homedir(), "buildplate", "refs");
-const PREVIEW_URL = (process.env.BUILDPLATE_PREVIEW_URL || "http://buildplate.localhost:3920").replace(
+const PREVIEW_URL = (process.env.BUILDPLATE_PREVIEW_URL || "http://buildplate.localhost").replace(
   /\/$/,
   "",
 );

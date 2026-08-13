@@ -45,7 +45,7 @@ cat <<EOF
       "command": "node",
       "args": ["$MCP_ENTRY"],
       "env": {
-        "BUILDPLATE_PREVIEW_URL": "http://buildplate.localhost:3920"
+        "BUILDPLATE_PREVIEW_URL": "http://buildplate.localhost"
       }
     }
   }

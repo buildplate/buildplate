@@ -12,7 +12,7 @@
     "postinstall": "npm install --prefix preview --ignore-scripts",
     "worker": "node scripts/start-worker.mjs",
     "mcp": "node mcp/server.mjs",
-    "preview": "npm run dev --prefix preview",
+    "preview": "node scripts/start-preview.mjs",
     "preview:build": "npm run build --prefix preview",
     "start": "concurrently -n worker,preview -c magenta,cyan \"npm:worker\" \"npm:preview\"",
     "dev": "npm start"

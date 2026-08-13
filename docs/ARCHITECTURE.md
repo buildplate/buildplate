@@ -5,7 +5,7 @@ See the root [README](../README.md) for install and agent usage.
 ```
 Agent  --MCP stdio-->  mcp/server.mjs  --auto-spawn-->  worker :8081
                                               |
-                                              +--> preview http://buildplate.localhost:3920
+                                              +--> preview http://buildplate.localhost
 ```
 
 | Path | Role |

@@ -20,10 +20,10 @@ Need Node 20+ and Python 3.10–3.13 (3.12 best).
   cd buildplate
   npm install
   npm run setup    # once — venv, PyTorch, TripoSR, Hunyuan
-  npm start        # worker :8081 + preview :3920  (leave running)
+  npm start        # worker :8081 + preview http://buildplate.localhost
 
 REPO is the absolute path to the clone (pwd after cd). MCP entrypoint: $REPO/mcp/server.mjs
-Env: BUILDPLATE_PREVIEW_URL=http://buildplate.localhost:3920
+Env: BUILDPLATE_PREVIEW_URL=http://buildplate.localhost
 The MCP auto-starts the worker if it is not up; preview still wants `npm start` or `npm run preview`.
 
 ## Add MCP to this client (detect which you are; do not ask the user to click around)
@@ -35,7 +35,7 @@ Cursor:
       "buildplate": {
         "command": "node",
         "args": ["${workspaceFolder}/mcp/server.mjs"],
-        "env": { "BUILDPLATE_PREVIEW_URL": "http://buildplate.localhost:3920" }
+        "env": { "BUILDPLATE_PREVIEW_URL": "http://buildplate.localhost" }
       }
     }
   }
@@ -43,7 +43,7 @@ Cursor:
   ["${workspaceFolder}/buildplate/mcp/server.mjs"]. Reload MCP.
 
 Claude Code:
-  claude mcp add --transport stdio --env BUILDPLATE_PREVIEW_URL=http://buildplate.localhost:3920 buildplate -- node $REPO/mcp/server.mjs
+  claude mcp add --transport stdio --env BUILDPLATE_PREVIEW_URL=http://buildplate.localhost buildplate -- node $REPO/mcp/server.mjs
 
 Claude Desktop:
   Merge into mcpServers (absolute path, not ${workspaceFolder}):
@@ -54,19 +54,19 @@ Claude Desktop:
       "buildplate": {
         "command": "node",
         "args": ["$REPO/mcp/server.mjs"],
-        "env": { "BUILDPLATE_PREVIEW_URL": "http://buildplate.localhost:3920" }
+        "env": { "BUILDPLATE_PREVIEW_URL": "http://buildplate.localhost" }
       }
     }
   }
   Fully quit and relaunch Claude Desktop.
 
 Codex (CLI / IDE):
-  codex mcp add buildplate --env BUILDPLATE_PREVIEW_URL=http://buildplate.localhost:3920 -- node $REPO/mcp/server.mjs
+  codex mcp add buildplate --env BUILDPLATE_PREVIEW_URL=http://buildplate.localhost -- node $REPO/mcp/server.mjs
   Or merge into ~/.codex/config.toml:
   [mcp_servers.buildplate]
   command = "node"
   args = ["$REPO/mcp/server.mjs"]
-  env = { BUILDPLATE_PREVIEW_URL = "http://buildplate.localhost:3920" }
+  env = { BUILDPLATE_PREVIEW_URL = "http://buildplate.localhost" }
 
 Any other MCP client: stdio, command=node, args=[$REPO/mcp/server.mjs], same env.
 
@@ -123,11 +123,13 @@ npm run setup
 npm start
 ```
 
+First `npm start` may ask for your Mac password so preview can use **http://buildplate.localhost** (port 80 on localhost only, not the network). Allow it once.
+
 Then add MCP for your client. Replace `/ABS/PATH/buildplate` with the clone path.
 
 ### Cursor
 
-[![Add to Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](cursor://anysphere.cursor-deeplink/mcp/install?name=buildplate&config=eyJjb21tYW5kIjoibm9kZSIsImFyZ3MiOlsiJHt3b3Jrc3BhY2VGb2xkZXJ9L21jcC9zZXJ2ZXIubWpzIl0sImVudiI6eyJCVUlMRFBMQVRFX1BSRVZJRVdfVVJMIjoiaHR0cDovL2J1aWxkcGxhdGUubG9jYWxob3N0OjM5MjAifX0=)
+[![Add to Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](cursor://anysphere.cursor-deeplink/mcp/install?name=buildplate&config=eyJjb21tYW5kIjoibm9kZSIsImFyZ3MiOlsiJHt3b3Jrc3BhY2VGb2xkZXJ9L21jcC9zZXJ2ZXIubWpzIl0sImVudiI6eyJCVUlMRFBMQVRFX1BSRVZJRVdfVVJMIjoiaHR0cDovL2J1aWxkcGxhdGUubG9jYWxob3N0In19)
 
 Or `.cursor/mcp.json`:
 
@@ -137,7 +139,7 @@ Or `.cursor/mcp.json`:
     "buildplate": {
       "command": "node",
       "args": ["${workspaceFolder}/mcp/server.mjs"],
-      "env": { "BUILDPLATE_PREVIEW_URL": "http://buildplate.localhost:3920" }
+      "env": { "BUILDPLATE_PREVIEW_URL": "http://buildplate.localhost" }
     }
   }
 }
@@ -148,7 +150,7 @@ Subfolder workspace: `${workspaceFolder}/buildplate/mcp/server.mjs`.
 ### Claude Code
 
 ```bash
-claude mcp add --transport stdio --env BUILDPLATE_PREVIEW_URL=http://buildplate.localhost:3920 buildplate -- node /ABS/PATH/buildplate/mcp/server.mjs
+claude mcp add --transport stdio --env BUILDPLATE_PREVIEW_URL=http://buildplate.localhost buildplate -- node /ABS/PATH/buildplate/mcp/server.mjs
 ```
 
 ### Claude Desktop
@@ -161,7 +163,7 @@ claude mcp add --transport stdio --env BUILDPLATE_PREVIEW_URL=http://buildplate.
     "buildplate": {
       "command": "node",
       "args": ["/ABS/PATH/buildplate/mcp/server.mjs"],
-      "env": { "BUILDPLATE_PREVIEW_URL": "http://buildplate.localhost:3920" }
+      "env": { "BUILDPLATE_PREVIEW_URL": "http://buildplate.localhost" }
     }
   }
 }
@@ -170,7 +172,7 @@ claude mcp add --transport stdio --env BUILDPLATE_PREVIEW_URL=http://buildplate.
 ### Codex
 
 ```bash
-codex mcp add buildplate --env BUILDPLATE_PREVIEW_URL=http://buildplate.localhost:3920 -- node /ABS/PATH/buildplate/mcp/server.mjs
+codex mcp add buildplate --env BUILDPLATE_PREVIEW_URL=http://buildplate.localhost -- node /ABS/PATH/buildplate/mcp/server.mjs
 ```
 
 Or `~/.codex/config.toml`:
@@ -179,7 +181,7 @@ Or `~/.codex/config.toml`:
 [mcp_servers.buildplate]
 command = "node"
 args = ["/ABS/PATH/buildplate/mcp/server.mjs"]
-env = { BUILDPLATE_PREVIEW_URL = "http://buildplate.localhost:3920" }
+env = { BUILDPLATE_PREVIEW_URL = "http://buildplate.localhost" }
 ```
 
 ---
@@ -190,7 +192,7 @@ env = { BUILDPLATE_PREVIEW_URL = "http://buildplate.localhost:3920" }
 |--|--|
 | **CAD** | Agent-authored trimesh / OpenSCAD / CadQuery → STL |
 | **Mesh** | Photo → Hunyuan (quality) or TripoSR (fast) → remesh → PBR albedo → GLB |
-| **Preview** | http://buildplate.localhost:3920 — orbit + Export STL |
+| **Preview** | http://buildplate.localhost — orbit + Export STL |
 
 Optional: `brew install --cask openscad`, or `worker/.venv/bin/pip install cadquery`.
 
