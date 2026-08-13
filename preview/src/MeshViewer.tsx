@@ -43,7 +43,7 @@ export function MeshViewer({ src, onReady }: Props) {
     <Canvas
       shadows
       gl={{ preserveDrawingBuffer: true, antialias: true }}
-      camera={{ position: [90, 80, 120], fov: 45, near: 0.1, far: 5000 }}
+      camera={{ position: [90, 80, 120], fov: 45, near: 0.01, far: 20000 }}
       style={{ width: "100%", height: "100%" }}
     >
       <color attach="background" args={["#12171c"]} />
@@ -72,8 +72,8 @@ export function MeshViewer({ src, onReady }: Props) {
         enableDamping
         dampingFactor={0.08}
         maxPolarAngle={Math.PI * 0.49}
-        minDistance={5}
-        maxDistance={2000}
+        minDistance={1}
+        maxDistance={8000}
       />
       {root && <FitOnce root={root} orbitRef={orbitRef} />}
     </Canvas>
@@ -114,8 +114,8 @@ function FitOnce({
 
     const dir = new THREE.Vector3(1, 0.85, 1.25).normalize();
     persp.position.copy(center).addScaledVector(dir, distance);
-    persp.near = Math.max(0.1, distance / 200);
-    persp.far = Math.max(5000, distance * 20);
+    persp.near = Math.max(0.01, distance / 2000);
+    persp.far = Math.max(20000, distance * 40);
     persp.updateProjectionMatrix();
 
     const apply = () => {
