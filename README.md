@@ -16,9 +16,79 @@ CAD (trimesh CSG) is CPU-only and light. Mesh reconstruction needs the GPU/unifi
 
 ---
 
-## Option 1 — Agent mode
+## Install
 
-Paste the block below into your agent (Cursor, Claude Code, Claude Desktop, Codex, …). GitHub’s copy button on the fence works. It installs Buildplate **and** wires MCP into whichever client you are using.
+```bash
+git clone https://github.com/buildplate/buildplate.git
+cd buildplate
+npm install
+npm run setup
+npm start
+```
+
+Then add MCP for your client. Replace `/ABS/PATH/buildplate` with the clone path.
+
+### Cursor
+
+[![Add to Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](cursor://anysphere.cursor-deeplink/mcp/install?name=buildplate&config=eyJjb21tYW5kIjoibm9kZSIsImFyZ3MiOlsiJHt3b3Jrc3BhY2VGb2xkZXJ9L21jcC9zZXJ2ZXIubWpzIl0sImVudiI6eyJCVUlMRFBMQVRFX1BSRVZJRVdfVVJMIjoiaHR0cDovLzEyNy4wLjAuMTozOTIwIn19)
+
+Or `.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "buildplate": {
+      "command": "node",
+      "args": ["${workspaceFolder}/mcp/server.mjs"],
+      "env": { "BUILDPLATE_PREVIEW_URL": "http://127.0.0.1:3920" }
+    }
+  }
+}
+```
+
+Subfolder workspace: `${workspaceFolder}/buildplate/mcp/server.mjs`.
+
+### Claude Code
+
+```bash
+claude mcp add --transport stdio --env BUILDPLATE_PREVIEW_URL=http://127.0.0.1:3920 buildplate -- node /ABS/PATH/buildplate/mcp/server.mjs
+```
+
+### Claude Desktop
+
+`~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows). Merge, then fully quit and relaunch:
+
+```json
+{
+  "mcpServers": {
+    "buildplate": {
+      "command": "node",
+      "args": ["/ABS/PATH/buildplate/mcp/server.mjs"],
+      "env": { "BUILDPLATE_PREVIEW_URL": "http://127.0.0.1:3920" }
+    }
+  }
+}
+```
+
+### Codex
+
+```bash
+codex mcp add buildplate --env BUILDPLATE_PREVIEW_URL=http://127.0.0.1:3920 -- node /ABS/PATH/buildplate/mcp/server.mjs
+```
+
+Or `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.buildplate]
+command = "node"
+args = ["/ABS/PATH/buildplate/mcp/server.mjs"]
+env = { BUILDPLATE_PREVIEW_URL = "http://127.0.0.1:3920" }
+```
+
+<details>
+<summary>Or paste this into your agent — it installs and wires MCP itself</summary>
+
+GitHub’s copy button on the fence still works after you expand.
 
 ```
 Set up Buildplate (local 3D MCP) on this machine, then add it to THIS product as an MCP server.
@@ -106,76 +176,7 @@ Shape changes (longer ears, extra parts) → new generate, or edit CAD source an
 
 In-repo, agents can also read [`AGENTS.md`](./AGENTS.md).
 
----
-
-## Option 2 — One-liners
-
-```bash
-git clone https://github.com/buildplate/buildplate.git
-cd buildplate
-npm install
-npm run setup
-npm start
-```
-
-Then add MCP for your client. Replace `/ABS/PATH/buildplate` with the clone path.
-
-### Cursor
-
-[![Add to Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](cursor://anysphere.cursor-deeplink/mcp/install?name=buildplate&config=eyJjb21tYW5kIjoibm9kZSIsImFyZ3MiOlsiJHt3b3Jrc3BhY2VGb2xkZXJ9L21jcC9zZXJ2ZXIubWpzIl0sImVudiI6eyJCVUlMRFBMQVRFX1BSRVZJRVdfVVJMIjoiaHR0cDovLzEyNy4wLjAuMTozOTIwIn19)
-
-Or `.cursor/mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "buildplate": {
-      "command": "node",
-      "args": ["${workspaceFolder}/mcp/server.mjs"],
-      "env": { "BUILDPLATE_PREVIEW_URL": "http://127.0.0.1:3920" }
-    }
-  }
-}
-```
-
-Subfolder workspace: `${workspaceFolder}/buildplate/mcp/server.mjs`.
-
-### Claude Code
-
-```bash
-claude mcp add --transport stdio --env BUILDPLATE_PREVIEW_URL=http://127.0.0.1:3920 buildplate -- node /ABS/PATH/buildplate/mcp/server.mjs
-```
-
-### Claude Desktop
-
-`~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows). Merge, then fully quit and relaunch:
-
-```json
-{
-  "mcpServers": {
-    "buildplate": {
-      "command": "node",
-      "args": ["/ABS/PATH/buildplate/mcp/server.mjs"],
-      "env": { "BUILDPLATE_PREVIEW_URL": "http://127.0.0.1:3920" }
-    }
-  }
-}
-```
-
-### Codex
-
-```bash
-codex mcp add buildplate --env BUILDPLATE_PREVIEW_URL=http://127.0.0.1:3920 -- node /ABS/PATH/buildplate/mcp/server.mjs
-```
-
-Or `~/.codex/config.toml`:
-
-```toml
-[mcp_servers.buildplate]
-command = "node"
-args = ["/ABS/PATH/buildplate/mcp/server.mjs"]
-env = { BUILDPLATE_PREVIEW_URL = "http://127.0.0.1:3920" }
-```
+</details>
 
 ---
 
