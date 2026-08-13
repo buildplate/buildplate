@@ -4,6 +4,7 @@ Buildplate local worker — mesh (TripoSR) + CAD (agent-authored OpenSCAD/CadQue
 HTTP contract (localhost):
   GET  /health
   POST /v1/generate  → binary GLB or STL
+  POST /v1/refine    → binary GLB (retint existing job; geometry unchanged)
   GET  /v1/jobs/{id}/preview.png
 """
 
@@ -28,6 +29,7 @@ from device import pick_device
 from guide import PLAYBOOK, recommend
 from hunyuan_backend import hunyuan_available
 from pipeline import Backend, GenerateResult, create_backend, load_image_b64
+from refine import find_job_dir, latest_job_dir, refine_job
 from remesh import DEFAULT_TARGET_FACES
 
 HERE = Path(__file__).resolve().parent
@@ -127,6 +129,13 @@ class GenerateBody(BaseModel):
     vendor: str | None = Field(default=None, description="triposr | hunyuan")
     remesh: bool = True
     target_faces: int | None = None
+
+
+class RefineBody(BaseModel):
+    prompt: str
+    job_id: str | None = None
+    color: str | None = Field(default=None, description="Target color name or #hex")
+    keep_mesh: bool = True
 
 
 def resolve_backend(body: GenerateBody) -> str:
@@ -254,7 +263,7 @@ def health():
         "jobs_done": STATE["jobs_done"],
         "boot_id": BOOT_ID,
         "uptime_s": round(time.time() - BOOT_TS, 1),
-        "tip": "generate: quality=quality (Hunyuan+remesh+PBR albedo) or quality=fast (TripoSR+remesh+PBR albedo). CAD needs agent source.",
+        "tip": "generate for a new mesh/CAD. refine({job_id, prompt}) retints an existing mesh (e.g. green instead of yellow). Shape changes need a new generate.",
     }
 
 
@@ -393,6 +402,77 @@ def generate(
         raise
     except Exception as err:
         logger.exception("generate failed")
+        STATE["last_error"] = str(err)
+        raise HTTPException(status_code=500, detail=str(err)) from err
+    finally:
+        STATE["busy"] = False
+        BUSY.release()
+
+
+@app.post("/v1/refine")
+def refine(
+    body: RefineBody,
+    x_worker_secret: str | None = Header(default=None),
+):
+    require_auth(x_worker_secret)
+    if not body.keep_mesh:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "refine keeps geometry. For shape changes (longer ears, extra parts) "
+                "call generate with a new photo or edited CAD source."
+            ),
+        )
+    prompt = (body.prompt or "").strip()
+    if not prompt and not (body.color or "").strip():
+        raise HTTPException(status_code=400, detail="prompt or color required")
+
+    src = find_job_dir(body.job_id) if body.job_id else latest_job_dir()
+    if src is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No mesh job found for job_id={body.job_id or '(latest)'}",
+        )
+
+    if not BUSY.acquire(blocking=False):
+        raise HTTPException(status_code=429, detail="worker busy — one job at a time")
+
+    STATE["busy"] = True
+    job_id = uuid.uuid4().hex[:10]
+    out_dir = CACHE / "jobs" / job_id
+    try:
+        result = refine_job(
+            src_dir=src,
+            out_dir=out_dir,
+            prompt=prompt or (body.color or ""),
+            color=body.color,
+        )
+        STATE["jobs_done"] += 1
+        STATE["last_error"] = None
+        preview = out_dir / "preview.png"
+        headers = {
+            "X-Job-Id": job_id,
+            "X-Textured": "1" if result.textured else "0",
+            "X-Backend": "refine",
+            "X-Engine": "refine",
+            "X-Parent-Job": src.name,
+        }
+        if preview.is_file():
+            headers["X-Preview-Path"] = str(preview)
+        return FileResponse(
+            path=result.path,
+            media_type="model/gltf-binary",
+            filename=result.path.name,
+            headers=headers,
+        )
+    except HTTPException:
+        raise
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
+    except FileNotFoundError as err:
+        raise HTTPException(status_code=404, detail=str(err)) from err
+    except Exception as err:
+        logger.exception("refine failed")
         STATE["last_error"] = str(err)
         raise HTTPException(status_code=500, detail=str(err)) from err
     finally:

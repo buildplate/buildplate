@@ -6,13 +6,13 @@
  *   - gather reference images OR author OpenSCAD / CadQuery / trimesh CSG
  * then Buildplate compiles / reconstructs locally.
  *
- * Tools: health, save_reference, generate, export_stl, preview
+ * Tools: health, save_reference, generate, refine, export_stl, preview
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { mkdir, writeFile, readFile, access, copyFile } from "node:fs/promises";
+import { mkdir, writeFile, readFile, access, copyFile, readdir, stat } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -21,6 +21,7 @@ import { pathToFileURL } from "node:url";
 import open from "open";
 import {
   generateMeshFromWorker,
+  refineFromWorker,
   probeWorkerHealth,
   workerConfigured,
   ensureWorker,
@@ -63,7 +64,9 @@ quality=fast uses TripoSR + remesh + the same albedo bake.
 Text-only mesh only with allow_text_only=true (weak).
 
 ## After
-Preview; iterate by editing CAD source or swapping the photo.
+Preview. Color/material follow-ups: refine({ job_id, prompt }) — keeps the mesh, retints albedo.
+  Example: refine({ job_id, prompt: "I want it to be green instead of yellow", color: "green" })
+Shape follow-ups (longer ears, extra parts): new generate with a new photo, or edit CAD source and re-generate.
 `;
 
 const GENERATE_TOOL_DESCRIPTION = `Local 3D generate. YOU choose mesh vs cad and enrich the request — the worker does not invent good CAD from a short prompt alone.
@@ -87,7 +90,9 @@ WHEN TO USE backend=mesh (organic / look-alike photo):
 
 DO NOT use mesh for hard-edged products (e.g. Bambu Lab P1S) expecting CAD-clean results.
 If you call generate without enough fields, the response includes a recommendation + example args — follow it and retry.
-Set backend explicitly when possible (cad or mesh). format=stl for CAD; mesh may be glb or stl.`;
+Set backend explicitly when possible (cad or mesh). format=stl for CAD; mesh may be glb or stl.
+
+FOLLOW-UPS: do not re-generate for color/material tweaks. Call refine({ job_id, prompt, color }) to retint the existing mesh. Shape changes need a new generate.`;
 
 const TRIMESH_HINT = `trimesh_code must assign \`result\` to a trimesh.Trimesh or Scene.
 Available: trimesh, np/numpy, math. Use trimesh.creation + .difference/.union/.intersection.`;
@@ -271,7 +276,15 @@ async function finishGenerateJob({ result, prompt, imagePath, open_preview, back
     imagePath: imagePath || null,
     backend: result.backend || backend,
     engine: result.engine || null,
-    mode: backend === "cad" ? "cad" : imagePath ? "image_to_3d" : "text_to_3d",
+    parentJobId: result.parentJobId || null,
+    mode:
+      backend === "cad"
+        ? "cad"
+        : backend === "refine"
+          ? "refine"
+          : imagePath
+            ? "image_to_3d"
+            : "text_to_3d",
     bytes: result.buffer.byteLength,
     sha256: createHash("sha256").update(Buffer.from(result.buffer)).digest("hex"),
     createdAt: new Date().toISOString(),
@@ -296,10 +309,13 @@ async function finishGenerateJob({ result, prompt, imagePath, open_preview, back
   }
 
   const lines = [
-    `Generated ${result.kind.toUpperCase()} (${meta.bytes} bytes)`,
+    backend === "refine"
+      ? `Refined ${result.kind.toUpperCase()} (${meta.bytes} bytes) — appearance only, geometry unchanged`
+      : `Generated ${result.kind.toUpperCase()} (${meta.bytes} bytes)`,
     `backend: ${meta.backend}${meta.engine ? ` / engine=${meta.engine}` : ""}`,
     `mode: ${meta.mode}`,
     `jobId: ${jobId}`,
+    meta.parentJobId ? `parent: ${meta.parentJobId}` : null,
     `path: ${meshPath}`,
     imagePath ? `reference: ${imagePath}` : null,
     previewUrl ? `preview: ${previewUrl}` : null,
@@ -316,9 +332,36 @@ async function finishGenerateJob({ result, prompt, imagePath, open_preview, back
   return { content };
 }
 
+async function latestOutJobId() {
+  let names;
+  try {
+    names = await readdir(OUT_DIR);
+  } catch {
+    return null;
+  }
+  let best = null;
+  let bestM = 0;
+  for (const name of names) {
+    const dir = path.join(OUT_DIR, name);
+    const glb = path.join(dir, "model.glb");
+    const stl = path.join(dir, "model.stl");
+    if (!(await fileExists(glb)) && !(await fileExists(stl))) continue;
+    try {
+      const s = await stat(dir);
+      if (s.mtimeMs > bestM) {
+        bestM = s.mtimeMs;
+        best = name;
+      }
+    } catch {
+      // skip
+    }
+  }
+  return best;
+}
+
 const server = new McpServer({
   name: "buildplate",
-  version: "0.4.1",
+  version: "0.5.0",
 });
 
 server.registerTool(
@@ -341,7 +384,7 @@ server.registerTool(
               previewUrl: PREVIEW_URL,
               workerConfigured: workerConfigured(),
               worker,
-              tip: "All routing lives in generate — read its tool description; incomplete calls return a recommendation to retry.",
+              tip: "generate for a new object. refine({job_id, prompt}) for color/material follow-ups on the last mesh. Incomplete generate returns a retry recipe.",
               playbook: AGENT_PLAYBOOK,
             },
             null,
@@ -604,6 +647,83 @@ server.registerTool(
         imagePath: resolvedImagePath,
         open_preview,
         backend: "mesh",
+      });
+    } catch (err) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: err instanceof Error ? err.message : String(err),
+          },
+        ],
+        isError: true,
+      };
+    }
+  },
+);
+
+server.registerTool(
+  "refine",
+  {
+    description:
+      "Update an existing mesh job with a follow-up prompt. Keeps geometry; retints albedo (e.g. 'make it green instead of yellow'). Pass the job_id from generate. For shape changes (longer ears, extra parts) call generate instead. CAD: edit trimesh_code/openscad and re-generate.",
+    inputSchema: {
+      prompt: z
+        .string()
+        .min(1)
+        .describe("Follow-up, e.g. 'I want it to be green instead of yellow'"),
+      job_id: z
+        .string()
+        .optional()
+        .describe("Job id from generate. Omit to use the most recent job."),
+      color: z
+        .string()
+        .optional()
+        .describe("Target color name or #hex if you extracted it (green, #22aa44)"),
+      keep_mesh: z
+        .boolean()
+        .optional()
+        .describe("Must stay true. Shape edits are a new generate."),
+      open_preview: z.boolean().optional().describe("Open localhost preview (default true)"),
+    },
+  },
+  async ({ prompt, job_id, color, keep_mesh, open_preview }) => {
+    if (keep_mesh === false) {
+      return {
+        content: [
+          {
+            type: "text",
+            text:
+              "refine keeps the mesh. For shape changes, call generate with a new photo (mesh) or edited CAD source.",
+          },
+        ],
+        isError: true,
+      };
+    }
+    try {
+      const jobId = job_id || (await latestOutJobId());
+      if (!jobId) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: "No previous job to refine. generate something first, then refine({ job_id, prompt }).",
+            },
+          ],
+          isError: true,
+        };
+      }
+      const result = await refineFromWorker({
+        jobId,
+        prompt,
+        color: color || null,
+      });
+      return await finishGenerateJob({
+        result,
+        prompt,
+        imagePath: null,
+        open_preview,
+        backend: "refine",
       });
     } catch (err) {
       return {

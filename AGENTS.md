@@ -2,7 +2,7 @@
 
 Local MCP. You think; the worker only compiles / reconstructs.
 
-Tools: `health`, `save_reference`, `generate`, `export_stl`, `preview`.
+Tools: `health`, `save_reference`, `generate`, `refine`, `export_stl`, `preview`.
 
 ## CAD (mechanical)
 
@@ -39,3 +39,11 @@ Do **not** use mesh for hard-edged products (printers, enclosures, etc.).
 ## After
 
 Preview. Incomplete `generate` calls return a retry recipe — follow it.
+
+Color / material follow-ups on a mesh: `refine({ job_id, prompt, color })` — keeps the mesh, retints albedo.
+
+```
+refine({ job_id, prompt: "I want it to be green instead of yellow", color: "green" })
+```
+
+Shape follow-ups (longer ears, extra parts): new `generate` with a new photo, or edit CAD source and re-generate.

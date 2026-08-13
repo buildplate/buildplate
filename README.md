@@ -41,7 +41,7 @@ If Buildplate is a **subfolder** of your workspace, use `${workspaceFolder}/buil
 Paste this into the chat (or keep [`AGENTS.md`](./AGENTS.md) in the repo — Cursor will read it):
 
 ```
-You have Buildplate MCP (local 3D). Tools: health, save_reference, generate, export_stl, preview.
+You have Buildplate MCP (local 3D). Tools: health, save_reference, generate, refine, export_stl, preview.
 
 CAD — brackets, boxes, enclosures, anything with mm / holes / flats:
   You author geometry. Prefer trimesh_code (always on). Must set result=.
@@ -59,6 +59,10 @@ Mesh — characters, toys, organic / look-like-a-photo:
   quality=fast is TripoSR (softer, quicker). Do not use mesh for hard-edged products.
 
 If generate is incomplete it returns a retry recipe — follow it. Then preview.
+
+Follow-ups: color/material → refine({ job_id, prompt, color }) keeps the mesh.
+  e.g. refine({ job_id, prompt: "make it green instead of yellow", color: "green" })
+Shape changes (longer ears, extra parts) → new generate, or edit CAD source and re-generate.
 ```
 
 ## What you get

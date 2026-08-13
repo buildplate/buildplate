@@ -49,7 +49,7 @@ quality=quality → Hunyuan3D-2mini + remesh + PBR albedo. quality=fast → Trip
 Text-only mesh is weak — only with allow_text_only=true.
 
 ## After
-Preview; iterate by editing your CAD source or swapping the photo.
+Preview; iterate CAD by editing source. Color follow-ups on a mesh: refine({job_id, prompt}) — keeps geometry.
 """
 
 CAD_HINTS = (

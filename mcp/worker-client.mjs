@@ -167,6 +167,82 @@ export async function generateMeshFromWorker({
   };
 }
 
+/**
+ * Retint an existing mesh job. Does not re-run Hunyuan/TripoSR.
+ * @param {{ jobId?: string|null, prompt: string, color?: string|null }} opts
+ */
+export async function refineFromWorker({ jobId = null, prompt, color = null }) {
+  const health = await ensureWorker();
+  if (!health.online) {
+    throw new Error(health.detail || missingWorkerError());
+  }
+
+  const base = WORKER_URL.replace(/\/$/, "");
+  const secret = process.env.BUILDPLATE_WORKER_SECRET?.trim();
+  const timeoutMs = Number(process.env.BUILDPLATE_WORKER_TIMEOUT_MS || 120_000);
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+
+  const body = { prompt: String(prompt || "").trim(), keep_mesh: true };
+  if (jobId) body.job_id = String(jobId);
+  if (color) body.color = String(color);
+
+  const headers = { "Content-Type": "application/json" };
+  if (secret) headers["X-Worker-Secret"] = secret;
+
+  let res;
+  try {
+    res = await fetch(`${base}/v1/refine`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      signal: ctrl.signal,
+    });
+  } catch (err) {
+    if (err?.name === "AbortError") {
+      throw new Error("GPU worker timed out");
+    }
+    throw new Error(`Worker unreachable: ${err?.message || err}`);
+  } finally {
+    clearTimeout(t);
+  }
+
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`;
+    try {
+      const data = await res.json();
+      detail = data.detail || data.error || data.text || detail;
+    } catch {
+      try {
+        detail = (await res.text()) || detail;
+      } catch {
+        // ignore
+      }
+    }
+    if (typeof detail === "object") detail = JSON.stringify(detail);
+    logWorker("error", `refine failed: ${detail}`, { status: res.status });
+    if (res.status === 429) throw new Error("Worker busy — one job at a time");
+    throw new Error(`Worker failed: ${detail}`);
+  }
+
+  const buffer = await res.arrayBuffer();
+  if (!buffer || buffer.byteLength < 84) {
+    throw new Error("Worker returned an empty/invalid mesh");
+  }
+
+  return {
+    buffer,
+    kind: "glb",
+    textured: res.headers.get("x-textured") !== "0",
+    taskId: res.headers.get("x-job-id") || "local",
+    prompt: String(prompt || "").trim(),
+    previewPath: res.headers.get("x-preview-path") || null,
+    backend: "refine",
+    engine: "refine",
+    parentJobId: res.headers.get("x-parent-job") || jobId || null,
+  };
+}
+
 export async function fetchJobPreview(jobId) {
   const base = WORKER_URL.replace(/\/$/, "");
   try {
