@@ -20,7 +20,7 @@ logger = logging.getLogger("buildplate-worker")
 _ATLAS = 1024
 _AZIMUTHS = tuple(range(0, 360, 20))
 _ELEVATIONS = (6, 16)
-_MAX_COLORS = 6
+_MAX_COLORS = 12
 
 
 def bake_reference_pbr(mesh: Any, image: Image.Image, out_dir: Path | None = None) -> Any:
@@ -42,7 +42,6 @@ def bake_reference_pbr(mesh: Any, image: Image.Image, out_dir: Path | None = Non
 
     colors = _project_vertex_colors(verts, faces, rgb, mask, az, el)
     colors = _fill_vertex_colors(faces, colors)
-    colors = _quantize_colors(colors, _MAX_COLORS)
 
     new_verts, new_faces, uvs, vmapping = _unwrap(verts, faces)
     vert_colors = colors[vmapping]
@@ -427,5 +426,5 @@ def _punch_palette(rgb: np.ndarray) -> np.ndarray:
     gray = rgb.mean(axis=1, keepdims=True)
     chroma = rgb - gray
     sat = np.linalg.norm(chroma, axis=1, keepdims=True)
-    boost = np.where(sat > 0.04, 1.35, 1.0)
+    boost = np.where(sat > 0.04, 1.12, 1.0)
     return np.clip(gray + chroma * boost, 0.0, 1.0)

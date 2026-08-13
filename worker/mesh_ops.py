@@ -34,8 +34,9 @@ def orient_mesh(mesh: Any, image: Any | None = None) -> Any:
         mesh = _keep_thin_axis_as_depth(mesh)
     if image is not None:
         mesh = _pose_to_image(mesh, image)
+        mesh = _upright_silhouette(mesh, image)
         mesh = _yaw_photo_to_front(mesh, image)
-        if kind not in ("oblate", "chunky"):
+        if kind not in ("oblate", "chunky", "pancake"):
             mesh = _pitch_off_spike(mesh, image)
     else:
         planted = _plant_feet_and_head(mesh)
@@ -47,7 +48,7 @@ def orient_mesh(mesh: Any, image: Any | None = None) -> Any:
             mesh = _keep_thin_axis_as_depth(mesh)
     if kind == "oblate":
         mesh = _wide_end_down(mesh)
-    elif kind != "chunky":
+    elif kind not in ("chunky", "pancake"):
         mesh = _feet_end_down(mesh)
     return _sit_on_ground(mesh)
 
@@ -481,6 +482,32 @@ def _yaw_photo_to_front(mesh: Any, image: Any) -> Any:
         return mesh
     logger.info("orient yaw photo to +Z front az=%d Δ=%.0f el=%d", az, delta, el)
     return _apply_rot(mesh, _euler(0.0, delta, 0.0))
+
+
+def _upright_silhouette(mesh: Any, image: Any) -> Any:
+    """Roll around the view so the figure stands in the photo's up, not on a diagonal."""
+    from texture import _image_arrays, _iou, _occupancy, _preview_mesh, _resize_mask
+
+    _rgb, mask = _image_arrays(image)
+    target = _resize_mask(mask, 80)
+    target_prof = target.mean(axis=1)
+    verts = np.asarray(mesh.vertices, dtype=float)
+    faces = np.asarray(mesh.faces, dtype=int)
+    v_s, f_s = _preview_mesh(verts, faces, 2500)
+    center = v_s.mean(axis=0)
+    best = (-1e9, np.eye(3), 0)
+    for roll in range(-90, 91, 5):
+        rot = _euler(0.0, 0.0, float(roll))
+        vv = (v_s - center) @ rot.T
+        occ = _occupancy(vv, f_s, az=0, el=12, size=80)
+        iou = _iou(occ, target)
+        corr = _corr(occ.mean(axis=1), target_prof)
+        tall = float(np.ptp(vv[:, 1]) / (np.ptp(vv[:, 0]) + 1e-8))
+        s = iou + 1.6 * corr + 0.2 * min(tall, 2.5)
+        if s > best[0]:
+            best = (s, rot, roll)
+    logger.info("orient upright silhouette roll=%d score=%.3f", best[2], best[0])
+    return _apply_rot(mesh, best[1])
 
 
 def _flip_if_head_down(mesh: Any) -> Any:
