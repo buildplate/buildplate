@@ -33,7 +33,25 @@ def orient_mesh(mesh: Any, image: Any | None = None) -> Any:
         mesh = planted
     if image is not None:
         mesh = _yaw_to_image(mesh, image)
+    mesh = _keep_thin_axis_as_depth(mesh)
     return _sit_on_ground(mesh)
+
+
+def _keep_thin_axis_as_depth(mesh: Any) -> Any:
+    """Single-view meshes are pancakes. Keep the flat face as the back, not a side cut."""
+    verts = np.asarray(mesh.vertices, dtype=float)
+    if len(verts) < 32:
+        return mesh
+    center = verts.mean(axis=0)
+    try:
+        _, _, vh = np.linalg.svd(verts - center, full_matrices=False)
+    except Exception:
+        return mesh
+    thin = vh[-1]
+    if abs(float(thin[0])) <= abs(float(thin[2])):
+        return mesh
+    logger.info("rotate 90° so thin axis is depth (thin x=%.2f z=%.2f)", thin[0], thin[2])
+    return _apply_rot(mesh, _euler(0.0, 90.0, 0.0))
 
 
 def _keep_best_component(mesh: Any) -> Any:
