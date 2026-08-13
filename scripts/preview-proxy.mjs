@@ -2,8 +2,28 @@
 /**
  * Loopback-only TCP proxy: :80 → localhost:3920
  * so http://buildplate.localhost works (browsers omit port 80).
+ *
+ * `node preview-proxy.mjs --daemon` forks a detached child and exits
+ * (needed so a macOS admin `do shell script` does not kill the listener).
  */
+import fs from "node:fs";
 import net from "node:net";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+const SELF = fileURLToPath(import.meta.url);
+const LOG = "/tmp/buildplate-preview-proxy.log";
+
+if (process.argv.includes("--daemon")) {
+  const out = fs.openSync(LOG, "a");
+  const child = spawn(process.execPath, [SELF], {
+    detached: true,
+    stdio: ["ignore", out, out],
+    env: process.env,
+  });
+  child.unref();
+  process.exit(0);
+}
 
 const LISTEN_PORT = Number(process.env.BUILDPLATE_PROXY_LISTEN || 80);
 const TARGET_PORT = Number(process.env.BUILDPLATE_PREVIEW_PORT || 3920);

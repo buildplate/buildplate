@@ -71,9 +71,7 @@ async function ensurePort80() {
   }
 
   if (process.platform === "darwin") {
-    const inner =
-      `${JSON.stringify(process.execPath)} ${JSON.stringify(PROXY)} ` +
-      `>/tmp/buildplate-preview-proxy.log 2>&1 &`;
+    const inner = `${JSON.stringify(process.execPath)} ${JSON.stringify(PROXY)} --daemon`;
     console.error(
       "Buildplate needs loopback port 80 so preview is http://buildplate.localhost. " +
         "macOS will ask for your password — binds localhost only, not the LAN.",
